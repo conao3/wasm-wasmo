@@ -2,6 +2,14 @@
 
 All packages share one version, set in `VERSION`. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.1.1] - 2026-10-29
+
+The packages are the same as 0.1.0. This is the first version on RubyGems and the Go module proxy and the first GitHub Release.
+
+### Fixed
+
+- The release workflow pins `rubygems/configure-rubygems-credentials` to an existing version, so the gem is published.
+
 ## [0.1.0] - 2026-10-29
 
 First release. One WebAssembly module (`wasmo.wasm`, built from Rust for `wasm32-unknown-unknown`) is embedded in an adapter for each language's AWS SDK and answers its requests inside the test process.
@@ -25,4 +33,5 @@ First release. One WebAssembly module (`wasmo.wasm`, built from Rust for `wasm32
 - Protocols: awsQuery, ec2, awsJson 1.0 / 1.1, rest-json, rest-xml, and Smithy RPC v2 CBOR, checked against the botocore protocol test suite.
 - Behaviour checked against the bun-bunsai parity fixtures recorded from real AWS.
 
+[0.1.1]: https://github.com/conao3/wasm-wasmo/releases/tag/v0.1.1
 [0.1.0]: https://github.com/conao3/wasm-wasmo/releases/tag/v0.1.0

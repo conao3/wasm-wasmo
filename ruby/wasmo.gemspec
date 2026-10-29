@@ -2,7 +2,7 @@
 
 Gem::Specification.new do |spec|
   spec.name = "wasmo"
-  spec.version = "0.1.0"
+  spec.version = "0.1.1"
   spec.summary = "Stateful in-process AWS mock for the AWS SDK for Ruby v3, powered by a single WebAssembly module"
   spec.description = <<~DESC
     wasmo runs a stateful AWS mock inside the test process. A Seahorse plugin replaces the HTTP send

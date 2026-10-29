@@ -1,6 +1,6 @@
 {
   "name": "@conao3/wasmo",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Stateful in-process AWS mock for the AWS SDK for JavaScript v3, powered by a single WebAssembly module",
   "keywords": [
     "aws",

@@ -718,7 +718,7 @@ dependencies = [
 
 [[package]]
 name = "wasmo-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "aes-gcm",
  "base64",
@@ -740,7 +740,7 @@ dependencies = [
 
 [[package]]
 name = "wasmo-wasm"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "serde_json",
  "wasmo-core",

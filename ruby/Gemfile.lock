@@ -1,7 +1,7 @@
 PATH
   remote: .
   specs:
-    wasmo (0.1.0)
+    wasmo (0.1.1)
       aws-sdk-core (~> 3.200)
       fiddle (~> 1.1)
       wasmtime (>= 50, < 60)

@@ -3,7 +3,7 @@
     <TargetFramework>net8.0</TargetFramework>
     <RootNamespace>Wasmo</RootNamespace>
     <PackageId>Wasmo</PackageId>
-    <Version>0.1.0</Version>
+    <Version>0.1.1</Version>
     <Authors>conao3</Authors>
     <Copyright>Copyright 2026 conao3</Copyright>
     <Description>A stateful in-process AWS mock for the AWS SDK for .NET, powered by a single WebAssembly module.</Description>
