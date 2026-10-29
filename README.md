@@ -14,7 +14,20 @@ out, _ := client.GetItem(ctx, &dynamodb.GetItemInput{TableName: aws.String("user
 // out.Item is the item written above
 ```
 
-> **Status:** early development. The Go adapter (AWS SDK for Go v2) and the JavaScript adapter (AWS SDK for JavaScript v3) run STS, SQS, DynamoDB, and S3. Neither is published yet.
+```java
+try (var mock = Wasmo.create()) {
+    var ddb = DynamoDbClient.builder()
+            .httpClient(mock)
+            .endpointOverride(mock.endpoint())
+            .region(mock.region())
+            .credentialsProvider(mock.credentialsProvider())
+            .build();
+    ddb.putItem(r -> r.tableName("users").item(item));
+    var out = ddb.getItem(r -> r.tableName("users").key(key));
+}
+```
+
+> **Status:** early development. The Go adapter (AWS SDK for Go v2), the JavaScript adapter (AWS SDK for JavaScript v3), and the JVM adapter (AWS SDK for Java v2) run STS, SQS, DynamoDB, and S3. None is published yet.
 
 | Service | Coverage |
 | --- | --- |
@@ -109,6 +122,7 @@ Jest: the package is ESM, so run Jest in ESM mode (`NODE_OPTIONS=--experimental-
 | `crates/wasmo-wasm` | The WebAssembly ABI around `wasmo-core` |
 | `go/` | Go adapter (`github.com/conao3/wasm-wasmo/go`) built on wazero |
 | `js/` | JavaScript / TypeScript adapter (`@conao3/wasmo`) for the AWS SDK for JavaScript v3 |
+| `jvm/` | Java/Kotlin adapter (`io.github.conao3:wasmo`) built on Chicory, compiled to JVM bytecode at build time |
 | `vendor/` | Vendored upstream test data (see `vendor/PROVENANCE.md`) |
 
 ## Development
@@ -117,8 +131,8 @@ Tools come from the Nix dev shell.
 
 ```sh
 nix develop
-make test   # cargo test + build wasm + go test + node --test + bun test
-make lint   # rustfmt, clippy, gofmt, go vet, tsc, prettier
+make test   # cargo test + build wasm + go test + node --test + bun test + mvn verify
+make lint   # rustfmt, clippy, gofmt, go vet, tsc, prettier, google-java-format, javac -Xlint
 ```
 
 ## License
