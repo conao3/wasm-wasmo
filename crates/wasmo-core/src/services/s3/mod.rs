@@ -1,5 +1,7 @@
 use std::collections::{BTreeMap, HashMap};
 
+use base64::Engine;
+use base64::engine::general_purpose::STANDARD;
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 
@@ -7,7 +9,7 @@ use crate::codec::AwsError;
 use crate::codec::rest::{parse_query, uri_encode};
 use crate::embedded_model;
 use crate::model::Operation;
-use crate::service::{Ctx, InputExt, OpResult, Service, ServiceModel};
+use crate::service::{Arn, Ctx, Delivery, InputExt, OpResult, Service, ServiceModel};
 use crate::wire::{Request, Response};
 use crate::xml::escape;
 
@@ -224,6 +226,22 @@ impl Service for S3 {
             }
             _ => {}
         }
+    }
+
+    fn deliver(&mut self, ctx: &mut Ctx<'_>, resource: &str, delivery: &Delivery) -> bool {
+        if let Some(arn) = Arn::parse(&delivery.source) {
+            ctx.account = arn.account.to_string();
+            ctx.region = arn.region.to_string();
+        }
+        let Some(key) = delivery.attributes.get("Key").and_then(Value::as_str) else {
+            return false;
+        };
+        let body = delivery
+            .bytes
+            .as_deref()
+            .unwrap_or(delivery.body.as_bytes());
+        let input = json!({ "Bucket": resource, "Key": key, "Body": STANDARD.encode(body) });
+        self.call(ctx, "PutObject", input).is_ok()
     }
 
     fn call(&mut self, ctx: &mut Ctx<'_>, operation: &str, input: Value) -> OpResult {

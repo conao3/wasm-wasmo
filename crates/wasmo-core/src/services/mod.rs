@@ -2,6 +2,7 @@ use crate::service::Service;
 
 pub mod dynamodb;
 pub mod events;
+pub mod firehose;
 pub mod kinesis;
 pub mod kms;
 mod pattern;
@@ -26,5 +27,13 @@ pub fn all() -> Vec<Box<dyn Service>> {
         Box::new(ssm::Ssm::default()),
         Box::new(kms::Kms::default()),
         Box::new(kinesis::Kinesis::default()),
+        Box::new(firehose::Firehose::default()),
     ]
+}
+
+pub(crate) fn gzip(data: &[u8]) -> Vec<u8> {
+    use std::io::Write;
+    let mut e = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+    e.write_all(data).expect("writes to a vec");
+    e.finish().expect("writes to a vec")
 }

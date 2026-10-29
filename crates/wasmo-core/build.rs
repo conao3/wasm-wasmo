@@ -15,6 +15,7 @@ const MODELS: &[&str] = &[
     "ssm",
     "kms",
     "kinesis",
+    "firehose",
 ];
 const STRIPPED_KEYS: &[&str] = &[
     "documentation",

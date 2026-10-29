@@ -16,6 +16,9 @@ dynamodb/update-item-remove-expression
 events/event-bus-lifecycle
 events/rule-lifecycle
 events/tags
+firehose/delivery-stream-lifecycle
+firehose/list-delivery-streams
+firehose/stream-error
 kinesis/record-chain
 kinesis/stream-error
 kinesis/stream-lifecycle
