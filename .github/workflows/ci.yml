@@ -19,7 +19,8 @@ jobs:
             ~/go/pkg/mod
             ~/.npm
             ~/.m2/repository
+            ~/.nuget/packages
             target
-          key: ${{ runner.os }}-${{ hashFiles('Cargo.lock', 'go/go.sum', 'js/package-lock.json', 'jvm/pom.xml', 'flake.lock') }}
+          key: ${{ runner.os }}-${{ hashFiles('Cargo.lock', 'go/go.sum', 'js/package-lock.json', 'jvm/pom.xml', 'dotnet/**/*.csproj', 'flake.lock') }}
       - run: nix develop --command make lint
       - run: nix develop --command make test
