@@ -14,7 +14,7 @@ out, _ := client.GetItem(ctx, &dynamodb.GetItemInput{TableName: aws.String("user
 // out.Item is the item written above
 ```
 
-> **Status:** early development. The Go adapter runs STS, SQS, DynamoDB, and S3 through the AWS SDK for Go v2. Adapters for other languages are not published yet.
+> **Status:** early development. The Go adapter (AWS SDK for Go v2) and the JavaScript adapter (AWS SDK for JavaScript v3) run STS, SQS, DynamoDB, and S3. Neither is published yet.
 
 | Service | Coverage |
 | --- | --- |
@@ -40,6 +40,67 @@ your language's AWS SDK
 
 The module needs no WASI. It imports two host functions (`wasmo.now_ms`, `wasmo.random_fill`) and exports three (`wasmo_alloc`, `wasmo_free`, `wasmo_handle`). A request is a JSON meta (method, URL, headers) plus raw body bytes; the response frame is a big-endian `u32` meta length, the meta JSON, then the body.
 
+## JavaScript / TypeScript
+
+`@conao3/wasmo` plugs into the AWS SDK for JavaScript v3 as a `requestHandler`. It runs on Node.js 20+ and Bun, ships ESM with type declarations, and has no runtime dependencies. The WebAssembly module is compiled once per process; each `mockAws()` gets its own instance.
+
+```ts
+import { mockAws } from "@conao3/wasmo";
+
+const aws = mockAws();
+const s3 = new S3Client(aws.clientConfig);
+const ddb = DynamoDBDocumentClient.from(new DynamoDBClient(aws.clientConfig));
+
+aws.reset(); // drop all state
+aws.close(); // later requests reject
+```
+
+`clientConfig` holds `endpoint`, `region` (`us-east-1`), dummy `credentials`, and `requestHandler`. Spread it to add client options, e.g. `new S3Client({ ...aws.clientConfig, forcePathStyle: true })`. S3 `GetObject` returns a `Readable` with `transformToByteArray()` and `transformToString()`, as with the real service.
+
+node:test (also runs under `bun test`):
+
+```ts
+import assert from "node:assert/strict";
+import { beforeEach, test } from "node:test";
+import { CreateQueueCommand, ReceiveMessageCommand, SendMessageCommand, SQSClient } from "@aws-sdk/client-sqs";
+import { mockAws } from "@conao3/wasmo";
+
+const aws = mockAws();
+const sqs = new SQSClient(aws.clientConfig);
+beforeEach(() => aws.reset());
+
+test("enqueue", async () => {
+  const { QueueUrl } = await sqs.send(new CreateQueueCommand({ QueueName: "jobs" }));
+  await sqs.send(new SendMessageCommand({ QueueUrl, MessageBody: "hi" }));
+  const out = await sqs.send(new ReceiveMessageCommand({ QueueUrl }));
+  assert.equal(out.Messages?.[0]?.Body, "hi");
+});
+```
+
+Vitest:
+
+```ts
+import { afterAll, beforeEach, expect, test } from "vitest";
+import { ConditionalCheckFailedException, DynamoDBClient } from "@aws-sdk/client-dynamodb";
+import { DynamoDBDocumentClient, PutCommand } from "@aws-sdk/lib-dynamodb";
+import { mockAws } from "@conao3/wasmo";
+
+const aws = mockAws();
+const doc = DynamoDBDocumentClient.from(new DynamoDBClient(aws.clientConfig));
+beforeEach(() => aws.reset());
+afterAll(() => aws.close());
+
+test("rejects a duplicate", async () => {
+  // create the table, then:
+  const put = () =>
+    doc.send(new PutCommand({ TableName: "users", Item: { id: "1" }, ConditionExpression: "attribute_not_exists(id)" }));
+  await put();
+  await expect(put()).rejects.toBeInstanceOf(ConditionalCheckFailedException);
+});
+```
+
+Jest: the package is ESM, so run Jest in ESM mode (`NODE_OPTIONS=--experimental-vm-modules npx jest`). The test body is the same as with Vitest, using Jest's globals.
+
 ## Layout
 
 | Path | Contents |
@@ -47,6 +108,7 @@ The module needs no WASI. It imports two host functions (`wasmo.now_ms`, `wasmo.
 | `crates/wasmo-core` | Router, protocol codecs, services, state. Plain Rust, tested natively with `cargo test` |
 | `crates/wasmo-wasm` | The WebAssembly ABI around `wasmo-core` |
 | `go/` | Go adapter (`github.com/conao3/wasm-wasmo/go`) built on wazero |
+| `js/` | JavaScript / TypeScript adapter (`@conao3/wasmo`) for the AWS SDK for JavaScript v3 |
 | `vendor/` | Vendored upstream test data (see `vendor/PROVENANCE.md`) |
 
 ## Development
@@ -55,8 +117,8 @@ Tools come from the Nix dev shell.
 
 ```sh
 nix develop
-make test   # cargo test + build wasm + go test
-make lint   # rustfmt, clippy, gofmt, go vet
+make test   # cargo test + build wasm + go test + node --test + bun test
+make lint   # rustfmt, clippy, gofmt, go vet, tsc, prettier
 ```
 
 ## License
