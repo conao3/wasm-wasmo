@@ -48,7 +48,10 @@
               pkgs.jq
               pkgs.jdk17
               pkgs.maven
+              pkgs.dotnet-sdk_8
             ];
+            DOTNET_CLI_TELEMETRY_OPTOUT = "1";
+            DOTNET_NOLOGO = "1";
           };
         };
     };
