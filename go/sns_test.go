@@ -473,3 +473,51 @@ func TestSNSMocksAreIsolated(t *testing.T) {
 		t.Fatalf("mock b sees %+v", out.Topics)
 	}
 }
+
+func TestSNSRedrivesUndeliverableMessages(t *testing.T) {
+	ctx := context.Background()
+	m := newMock(t)
+	client := sns.NewFromConfig(m.Config())
+	queues := sqs.NewFromConfig(m.Config())
+
+	topic := mustTopic(t, client, "jobs", nil)
+	dlqURL, dlqArn := queueWithArn(t, queues, "jobs-dlq", nil)
+	redrive := `{"deadLetterTargetArn": "` + dlqArn + `"}`
+	if _, err := client.Subscribe(ctx, &sns.SubscribeInput{
+		TopicArn:   aws.String(topic),
+		Protocol:   aws.String("lambda"),
+		Endpoint:   aws.String("arn:aws:lambda:us-east-1:000000000000:function:worker"),
+		Attributes: map[string]string{"RedrivePolicy": redrive},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	_, goneArn := queueWithArn(t, queues, "gone", nil)
+	subscribeQueue(t, client, topic, goneArn, map[string]string{"RedrivePolicy": redrive, "RawMessageDelivery": "true"})
+	goneURL, err := queues.GetQueueUrl(ctx, &sqs.GetQueueUrlInput{QueueName: aws.String("gone")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := queues.DeleteQueue(ctx, &sqs.DeleteQueueInput{QueueUrl: goneURL.QueueUrl}); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := client.Publish(ctx, &sns.PublishInput{TopicArn: aws.String(topic), Message: aws.String("work")}); err != nil {
+		t.Fatal(err)
+	}
+	got := drain(t, queues, dlqURL)
+	if len(got) != 2 {
+		t.Fatalf("dead-letter queue got %d messages", len(got))
+	}
+	var lambda struct {
+		Records []struct {
+			EventSource string
+			Sns         struct{ Message string }
+		}
+	}
+	if err := json.Unmarshal([]byte(aws.ToString(got[0].Body)), &lambda); err != nil || lambda.Records[0].EventSource != "aws:sns" || lambda.Records[0].Sns.Message != "work" {
+		t.Fatalf("lambda payload = %s (%v)", aws.ToString(got[0].Body), err)
+	}
+	if aws.ToString(got[1].Body) != "work" {
+		t.Fatalf("raw payload = %s", aws.ToString(got[1].Body))
+	}
+}

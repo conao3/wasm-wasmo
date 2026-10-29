@@ -27,14 +27,21 @@ try (var mock = Wasmo.create()) {
 }
 ```
 
-> **Status:** early development. The Go adapter (AWS SDK for Go v2), the JavaScript adapter (AWS SDK for JavaScript v3), and the JVM adapter (AWS SDK for Java v2) run STS, SQS, DynamoDB, and S3. None is published yet.
+> **Status:** early development. The Go adapter (AWS SDK for Go v2), the JavaScript adapter (AWS SDK for JavaScript v3), and the JVM adapter (AWS SDK for Java v2) run STS, SQS, DynamoDB, S3, SNS, EventBridge, Secrets Manager, SSM Parameter Store, and KMS. None is published yet.
 
 | Service | Coverage |
 | --- | --- |
 | STS | Caller identity, assume-role family, session and federation tokens |
 | SQS | All 23 operations: standard and FIFO queues, batches, visibility, dead-letter redrive, move tasks |
 | DynamoDB | Tables and indexes, items with condition/update/projection expressions, Query/Scan, batches, transactions, PartiQL, TTL, backups |
-| S3 | Buckets, objects, listing, multipart, versioning, checksums, tagging, ACLs, Object Lock, bucket configuration, presigned GET, virtual-hosted and path-style addressing |
+| S3 | Buckets, objects, listing, multipart, versioning, checksums, tagging, ACLs, Object Lock, bucket configuration, presigned GET, virtual-hosted and path-style addressing, event notifications |
+| SNS | Topics, subscriptions with confirmation, Publish/PublishBatch, filter policies, raw delivery, FIFO topics, dead-letter redrive, platform endpoints, SMS settings |
+| EventBridge | Buses, rules and targets, event patterns, input transformers, PutEvents, archives and replays, permissions, connections, API destinations |
+| Secrets Manager | Secrets, versions and staging labels, delete and restore, rotation settings, random passwords, resource policies, BatchGetSecretValue |
+| SSM | Parameter Store: String/StringList/SecureString, versions, labels, hierarchies, GetParametersByPath, history, tags |
+| KMS | Keys and aliases, AES-GCM Encrypt/Decrypt/ReEncrypt, data keys, ECDSA and RSA Sign/Verify, HMAC, grants, key policies, rotation |
+
+Services deliver to each other inside a mock: SNS to SQS, EventBridge to SQS and SNS, and S3 notifications to SQS, SNS, and EventBridge happen synchronously during the triggering call.
 
 The protocol codecs (awsQuery, ec2, awsJson 1.0/1.1, rest-json, rest-xml) are checked against botocore's protocol test suite; every case either passes or is listed in `crates/wasmo-core/tests/conformance-gaps.txt` as client-only behaviour.
 
