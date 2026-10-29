@@ -2,12 +2,15 @@ package wasmo_test
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
-	"github.com/conao3/wasm-wasmo/go"
+	"github.com/aws/smithy-go"
+	wasmo "github.com/conao3/wasm-wasmo/go"
 )
 
 func newMock(t testing.TB) *wasmo.Mock {
@@ -19,6 +22,22 @@ func newMock(t testing.TB) *wasmo.Mock {
 	}
 	t.Cleanup(func() { m.Close(ctx) })
 	return m
+}
+
+func apiCode(err error) string {
+	var ae smithy.APIError
+	if errors.As(err, &ae) {
+		return ae.ErrorCode()
+	}
+	return ""
+}
+
+func httpStatus(err error) int {
+	var re *awshttp.ResponseError
+	if errors.As(err, &re) {
+		return re.HTTPStatusCode()
+	}
+	return 0
 }
 
 func TestGetCallerIdentity(t *testing.T) {

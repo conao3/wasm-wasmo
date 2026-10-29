@@ -13,7 +13,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
-	"github.com/aws/smithy-go"
 )
 
 func ddb(t testing.TB) *dynamodb.Client {
@@ -60,14 +59,6 @@ func createOrders(t testing.TB, client *dynamodb.Client) {
 	}).Wait(ctx, &dynamodb.DescribeTableInput{TableName: aws.String("orders")}, time.Second); err != nil {
 		t.Fatal(err)
 	}
-}
-
-func apiCode(err error) string {
-	var ae smithy.APIError
-	if errors.As(err, &ae) {
-		return ae.ErrorCode()
-	}
-	return ""
 }
 
 func TestDynamoDBTableLifecycle(t *testing.T) {

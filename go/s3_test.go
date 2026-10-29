@@ -15,12 +15,10 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
 	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
-	"github.com/aws/smithy-go"
-	"github.com/conao3/wasm-wasmo/go"
+	wasmo "github.com/conao3/wasm-wasmo/go"
 )
 
 var addressing = []struct {
@@ -78,22 +76,6 @@ func pattern(n int) []byte {
 		b[i] = byte(i*31 + i/7)
 	}
 	return b
-}
-
-func apiCode(err error) string {
-	var ae smithy.APIError
-	if errors.As(err, &ae) {
-		return ae.ErrorCode()
-	}
-	return ""
-}
-
-func httpStatus(err error) int {
-	var re *awshttp.ResponseError
-	if errors.As(err, &re) {
-		return re.HTTPStatusCode()
-	}
-	return 0
 }
 
 func TestS3Buckets(t *testing.T) {
