@@ -443,8 +443,14 @@ pub fn serialize_output(
     }
     let (body, content_type) = serialize_body(reg, &output.shape, shape, &obj, format);
     res.body = body;
-    res.headers
-        .push(("Content-Length".to_string(), res.body.len().to_string()));
+    if !res
+        .headers
+        .iter()
+        .any(|(k, _)| k.eq_ignore_ascii_case("content-length"))
+    {
+        res.headers
+            .push(("Content-Length".to_string(), res.body.len().to_string()));
+    }
     if let Some(ct) = content_type
         && !res
             .headers
@@ -631,6 +637,27 @@ pub fn serialize_error(
         }
     }
     res
+}
+
+/// S3-style error document: `<Error>` at the root carrying the code, the
+/// message, every extra field, and the request id.
+pub fn serialize_unwrapped_error(error: &AwsError, request_id: &str) -> HttpResponse {
+    let mut err = Element::new("Error");
+    err.children
+        .push(Element::with_text("Code", error.code.clone()));
+    err.children
+        .push(Element::with_text("Message", error.message.clone()));
+    for (k, v) in error.data.iter() {
+        let text = v.as_str().map_or_else(|| v.to_string(), str::to_string);
+        err.children.push(Element::with_text(k.clone(), text));
+    }
+    err.children
+        .push(Element::with_text("RequestId", request_id));
+    HttpResponse {
+        status: error.status,
+        headers: vec![("Content-Type".to_string(), "application/xml".to_string())],
+        body: err.to_xml().into_bytes(),
+    }
 }
 
 #[cfg(test)]

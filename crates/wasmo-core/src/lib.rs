@@ -1,3 +1,4 @@
+pub mod chunked;
 pub mod codec;
 pub mod env;
 pub mod model;
@@ -46,9 +47,36 @@ impl<E: Env> Emulator<E> {
             return Response::text(400, format!("wasmo: service '{name}' is not emulated"));
         };
         let model = service.model();
-        let mut res = match resolve(model, req) {
-            Some(op) => {
-                let host = req.header("host").unwrap_or("wasmo.local");
+        let mut host = req.header("host").unwrap_or("wasmo.local").to_string();
+        let vhost = service
+            .virtual_hosted()
+            .then(|| route::virtual_host_bucket(&host))
+            .flatten()
+            .map(|(bucket, base)| (bucket.to_string(), base.to_string()));
+        let mut normalized = None;
+        if vhost.is_some() || chunked::is_chunked(req) {
+            let mut r = req.clone();
+            if let Some((bucket, base)) = vhost {
+                r.path = if r.path == "/" {
+                    format!("/{bucket}")
+                } else {
+                    format!("/{bucket}{}", r.path)
+                };
+                host = base;
+            }
+            normalized = Some(r);
+        }
+        let mut chunk_error = None;
+        if let Some(r) = normalized.as_mut().filter(|r| chunked::is_chunked(r))
+            && let Err(e) = chunked::unwrap(r)
+        {
+            chunk_error = Some(AwsError::new(400, "IncompleteBody", e));
+        }
+        let req = normalized.as_ref().unwrap_or(req);
+        let op = service.resolve(req).or_else(|| resolve(model, req));
+        let mut res = match (op, chunk_error) {
+            (Some(op), Some(error)) => serialize_error(model, Some(op), &error, &request_id),
+            (Some(op), None) => {
                 let mut ctx = Ctx {
                     account: route.account.clone(),
                     region: route.region.clone(),
@@ -59,11 +87,15 @@ impl<E: Env> Emulator<E> {
                 let result = parse_input(model, op, req)
                     .and_then(|input| service.call(&mut ctx, &op.name, input));
                 match result {
-                    Ok(output) => serialize_output(model, op, &output, &request_id),
+                    Ok(output) => {
+                        let mut res = serialize_output(model, op, &output, &request_id);
+                        service.finish(&op.name, &output, &mut res);
+                        res
+                    }
                     Err(error) => serialize_error(model, Some(op), &error, &request_id),
                 }
             }
-            None => {
+            (None, _) => {
                 let code = match model.metadata.protocol.as_str() {
                     "query" | "ec2" => "InvalidAction",
                     _ => "UnknownOperationException",
@@ -76,6 +108,9 @@ impl<E: Env> Emulator<E> {
                 )
             }
         };
+        if req.method.eq_ignore_ascii_case("HEAD") || res.status == 304 {
+            res.body.clear();
+        }
         res.headers
             .push(("x-amzn-requestid".to_string(), request_id.clone()));
         if model.metadata.protocol == "rest-xml" {
@@ -281,7 +316,11 @@ fn serialize_error(
             } else if let Some((name, _)) = modeled {
                 error.code = name.to_string();
             }
-            let r = rest::serialize_error(reg, &error, shape, rest_format(model), request_id);
+            let r = if model.metadata.service_id.as_deref() == Some("S3") {
+                rest::serialize_unwrapped_error(&error, request_id)
+            } else {
+                rest::serialize_error(reg, &error, shape, rest_format(model), request_id)
+            };
             Response {
                 status: r.status,
                 headers: r.headers,

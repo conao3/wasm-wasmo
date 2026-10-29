@@ -7,7 +7,7 @@ use crate::codec::AwsError;
 use crate::codec::rest::match_uri;
 use crate::env::Env;
 use crate::model::{Metadata, Operation, Registry};
-use crate::wire::Request;
+use crate::wire::{Request, Response};
 
 #[derive(Debug)]
 pub struct ServiceModel {
@@ -117,6 +117,19 @@ pub trait Service {
     fn signing_name(&self) -> &'static str;
     fn model(&self) -> &'static ServiceModel;
     fn call(&mut self, ctx: &mut Ctx<'_>, operation: &str, input: Value) -> OpResult;
+
+    /// Whether requests may address a bucket through the host name.
+    fn virtual_hosted(&self) -> bool {
+        false
+    }
+
+    /// Overrides operation resolution where the model alone is ambiguous.
+    fn resolve(&self, _req: &Request) -> Option<&'static Operation> {
+        None
+    }
+
+    /// Adjusts a serialized successful response.
+    fn finish(&self, _operation: &str, _output: &Value, _res: &mut Response) {}
 }
 
 /// Accessors for operation input.

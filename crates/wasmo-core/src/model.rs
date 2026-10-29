@@ -152,6 +152,7 @@ pub struct Metadata {
     pub target_prefix: Option<String>,
     pub json_version: Option<String>,
     pub xml_namespace: Option<String>,
+    pub service_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Default)]
