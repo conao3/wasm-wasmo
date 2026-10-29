@@ -34,7 +34,7 @@ await ddb.PutItemAsync("users", item);
 var out = await ddb.GetItemAsync("users", key);
 ```
 
-> **Status:** early development. Adapters for Go (AWS SDK for Go v2), JavaScript (AWS SDK for JavaScript v3), the JVM (AWS SDK for Java v2), .NET (AWS SDK for .NET v4), and Python (boto3) run STS, SQS, DynamoDB, S3, SNS, EventBridge, Secrets Manager, SSM Parameter Store, and KMS. None is published yet.
+> **Status:** early development. Adapters for Go (AWS SDK for Go v2), JavaScript (AWS SDK for JavaScript v3), the JVM (AWS SDK for Java v2), .NET (AWS SDK for .NET v4), Python (boto3), and Ruby (AWS SDK for Ruby v3) run STS, SQS, DynamoDB, S3, SNS, EventBridge, Secrets Manager, SSM Parameter Store, and KMS. None is published yet.
 
 | Service | Coverage |
 | --- | --- |
@@ -61,7 +61,7 @@ Every AWS SDK lets you replace its HTTP client. wasmo uses the AWS wire protocol
 ```
 your language's AWS SDK
   └─ HTTP client adapter (a few hundred lines per language)
-       └─ WebAssembly runtime (Go: wazero, JVM: Chicory, JS: built-in, Python/.NET/Ruby: wasmtime)
+       └─ WebAssembly runtime (Go: wazero, JVM: Chicory, JS: built-in, Ruby: wasmtime-rb, Python/.NET: wasmtime)
             └─ wasmo.wasm (Rust, wasm32-unknown-unknown)
 ```
 
@@ -190,6 +190,61 @@ aws.close()
 
 Inside `mock_aws()`, clients default to the endpoint `http://wasmo.local`, region `us-east-1`, and dummy credentials. `aws.fetch(url)` sends a raw request such as a presigned URL to the mock. See `python/README.md` for details.
 
+## Ruby
+
+The `wasmo` gem plugs into the AWS SDK for Ruby v3 as a Seahorse plugin whose send handler replaces Net::HTTP, so signing, retries, checksums, and response parsing stay in the SDK. It needs Ruby 3.2+ and runs the module with [wasmtime-rb](https://github.com/bytecodealliance/wasmtime-rb); the WebAssembly module ships inside the gem. The module is loaded once per process, and its compiled machine code is cached in `Gem.cache_home/wasmo` (`~/.cache/wasmo`), so only the first run after an upgrade compiles it. Each `Wasmo::Mock` gets its own instance, and calls into one instance are serialized, so a mock can be shared across threads.
+
+```ruby
+require "wasmo"
+require "aws-sdk-s3"
+
+aws = Wasmo::Mock.new
+s3 = aws.client(Aws::S3::Client) # or Aws::S3::Client.new(**aws.config)
+s3.create_bucket(bucket: "assets")
+s3.put_object(bucket: "assets", key: "a.txt", body: "hi")
+s3.get_object(bucket: "assets", key: "a.txt").body.read # => "hi"
+
+aws.client(Aws::S3::Client, force_path_style: true) # extra client options pass through
+aws.reset # drop all state
+aws.close # later requests raise Wasmo::ClosedError
+```
+
+`aws.config` holds the plugin, `region` (`us-east-1`), `endpoint` (`http://wasmo.local`), and dummy `credentials`. `Wasmo.mock_aws` merges the same options into `Aws.config` for the duration of the block, so clients built inside it with no arguments talk to the mock; `Aws.config` is restored and the mock closed when the block returns. A client that passes its own `plugins:` inside the block skips the global plugin list; build it with `aws.client` instead.
+
+```ruby
+Wasmo.mock_aws do |aws|
+  sqs = Aws::SQS::Client.new
+  url = sqs.create_queue(queue_name: "jobs").queue_url
+  sqs.send_message(queue_url: url, message_body: "hi")
+end
+```
+
+Minitest:
+
+```ruby
+class UsersTest < Minitest::Test
+  def setup
+    @aws = Wasmo::Mock.new
+    @ddb = @aws.client(Aws::DynamoDB::Client)
+  end
+
+  def teardown
+    @aws.close
+  end
+
+  def test_rejects_a_duplicate
+    # create the table, then:
+    put = -> { @ddb.put_item(table_name: "users", item: { "id" => "1" }, condition_expression: "attribute_not_exists(id)") }
+    put.call
+    assert_raises(Aws::DynamoDB::Errors::ConditionalCheckFailedException) { put.call }
+  end
+end
+```
+
+`aws.request(method, url, headers, body)` sends a raw HTTP request to the mock, e.g. to fetch a presigned URL from `Aws::S3::Presigner`.
+
+wasmtime-rb publishes precompiled native gems for Ruby 3.3+ on x86_64/aarch64 Linux (glibc and musl) and macOS; on Ruby 3.2 or other platforms Bundler builds it from source, which needs a Rust toolchain. The precompiled `x86_64-linux` gem also loads on NixOS under the nixpkgs `ruby`: its only dependencies are glibc and `libgcc_s`, which the nixpkgs Ruby has already loaded.
+
 ## Layout
 
 | Path | Contents |
@@ -201,6 +256,7 @@ Inside `mock_aws()`, clients default to the endpoint `http://wasmo.local`, regio
 | `python/` | Python adapter (`wasmo` on PyPI) for boto3, built on wasmtime |
 | `jvm/` | Java/Kotlin adapter (`io.github.conao3:wasmo`) built on Chicory, compiled to JVM bytecode at build time |
 | `dotnet/` | .NET adapter (NuGet `Wasmo`) for the AWS SDK for .NET v4, built on wasmtime-dotnet |
+| `ruby/` | Ruby adapter (gem `wasmo`) for the AWS SDK for Ruby v3, built on wasmtime-rb |
 | `vendor/` | Vendored upstream test data (see `vendor/PROVENANCE.md`) |
 
 ## Development
@@ -209,8 +265,8 @@ Tools come from the Nix dev shell.
 
 ```sh
 nix develop
-make test   # cargo test + build wasm + go test + node --test + bun test + mvn verify + dotnet test + pytest
-make lint   # rustfmt, clippy, gofmt, go vet, tsc, prettier, google-java-format, javac -Xlint, dotnet format, dotnet build (warnings as errors), ruff
+make test   # cargo test + build wasm + go test + node --test + bun test + mvn verify + dotnet test + pytest + rake test
+make lint   # rustfmt, clippy, gofmt, go vet, tsc, prettier, google-java-format, javac -Xlint, dotnet format, dotnet build (warnings as errors), ruff, rubocop
 ```
 
 ## License
