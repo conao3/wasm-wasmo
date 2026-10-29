@@ -34,7 +34,7 @@ await ddb.PutItemAsync("users", item);
 var out = await ddb.GetItemAsync("users", key);
 ```
 
-> **Status:** early development. Adapters for Go (AWS SDK for Go v2), JavaScript (AWS SDK for JavaScript v3), the JVM (AWS SDK for Java v2), .NET (AWS SDK for .NET v4), Python (boto3), and Ruby (AWS SDK for Ruby v3) run STS, SQS, DynamoDB, S3, SNS, EventBridge, Secrets Manager, SSM Parameter Store, and KMS. None is published yet.
+> **Status:** early development. Adapters for Go (AWS SDK for Go v2), JavaScript (AWS SDK for JavaScript v3), the JVM (AWS SDK for Java v2), .NET (AWS SDK for .NET v4), Python (boto3), and Ruby (AWS SDK for Ruby v3) run STS, SQS, DynamoDB, S3, SNS, EventBridge, Secrets Manager, SSM Parameter Store, and KMS; the Go adapter also covers IAM, CloudWatch, CloudWatch Logs, Kinesis, Data Firehose, and DynamoDB Streams. None is published yet.
 
 | Service | Coverage |
 | --- | --- |
@@ -47,8 +47,14 @@ var out = await ddb.GetItemAsync("users", key);
 | Secrets Manager | Secrets, versions and staging labels, delete and restore, rotation settings, random passwords, resource policies, BatchGetSecretValue |
 | SSM | Parameter Store: String/StringList/SecureString, versions, labels, hierarchies, GetParametersByPath, history, tags |
 | KMS | Keys and aliases, AES-GCM Encrypt/Decrypt/ReEncrypt, data keys, ECDSA and RSA Sign/Verify, HMAC, grants, key policies, rotation |
+| IAM | Users, groups, roles with trust policies, managed policies with versions and inline policies, attachments, permissions boundaries, access keys, login profiles and password policy, instance profiles, OIDC and SAML providers, MFA devices, SSH keys and certificates, credential report, account summary and aliases, SimulatePrincipalPolicy and SimulateCustomPolicy |
+| CloudWatch | PutMetricData, GetMetricStatistics and GetMetricData with period aggregation, percentiles, and metric math, ListMetrics, metric alarms evaluated per period, composite alarms, alarm history, dashboards, anomaly detectors, insight rules, metric streams; answers RPC v2 CBOR, awsJson, and awsQuery |
+| CloudWatch Logs | Log groups and streams, PutLogEvents, GetLogEvents and FilterLogEvents with term, regex, JSON, and space-delimited patterns, retention, metric filters, subscription filters, Insights queries (fields, filter, stats, sort, limit), export tasks, policies, deliveries |
+| Kinesis | Streams and shards, MD5 partition-key hashing, every shard iterator type, GetRecords, SplitShard, MergeShards, UpdateShardCount, enhanced fan-out consumers, tags, encryption, retention |
+| Data Firehose | Delivery streams, PutRecord and PutRecordBatch written to the S3 destination (one object per batch, GZIP when configured), destination updates, tags, encryption |
+| DynamoDB Streams | INSERT, MODIFY, and REMOVE records for tables with a StreamSpecification in every view type, DescribeStream, ListStreams, shard iterators, GetRecords |
 
-Services deliver to each other inside a mock: SNS to SQS, EventBridge to SQS and SNS, and S3 notifications to SQS, SNS, and EventBridge happen synchronously during the triggering call.
+Services deliver to each other inside a mock: SNS to SQS, EventBridge to SQS and SNS, S3 notifications to SQS, SNS, and EventBridge, CloudWatch Logs subscription filters to Kinesis, Firehose, and Logs destinations (gzipped `awslogs` payloads), Logs metric filters to CloudWatch, Firehose and Logs export tasks to S3, and CloudWatch alarm actions to SNS and EventBridge happen synchronously during the triggering call.
 
 The protocol codecs (awsQuery, ec2, awsJson 1.0/1.1, rest-json, rest-xml, Smithy RPC v2 CBOR) are checked against botocore's protocol test suite; every case either passes or is listed in `crates/wasmo-core/tests/conformance-gaps.txt` as client-only behaviour.
 

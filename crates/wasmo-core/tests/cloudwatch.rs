@@ -66,9 +66,8 @@ fn query_requests_get_xml() {
 
 #[test]
 fn query_errors_use_the_query_code() {
-    let res = query(
-        "Action=SetAlarmState&Version=2010-08-01&AlarmName=nope&StateValue=OK&StateReason=x",
-    );
+    let res =
+        query("Action=SetAlarmState&Version=2010-08-01&AlarmName=nope&StateValue=OK&StateReason=x");
     assert_eq!(res.status, 404);
     assert!(
         String::from_utf8(res.body)
@@ -88,7 +87,10 @@ fn json_requests_get_json() {
         ],
         br#"{"Namespace":"App"}"#,
     ));
-    assert_eq!(header(&res, "content-type"), Some("application/x-amz-json-1.0"));
+    assert_eq!(
+        header(&res, "content-type"),
+        Some("application/x-amz-json-1.0")
+    );
     let body: serde_json::Value = serde_json::from_slice(&res.body).unwrap();
     assert_eq!(body["Metrics"][0]["MetricName"], "Hits");
 }
@@ -102,7 +104,10 @@ fn cbor_requests_get_cbor() {
             ("Content-Type", "application/cbor"),
             ("smithy-protocol", "rpc-v2-cbor"),
         ],
-        &[0xa1, 0x69, b'N', b'a', b'm', b'e', b's', b'p', b'a', b'c', b'e', 0x63, b'A', b'p', b'p'],
+        &[
+            0xa1, 0x69, b'N', b'a', b'm', b'e', b's', b'p', b'a', b'c', b'e', 0x63, b'A', b'p',
+            b'p',
+        ],
     ));
     assert_eq!(res.status, 200);
     assert_eq!(header(&res, "smithy-protocol"), Some("rpc-v2-cbor"));
