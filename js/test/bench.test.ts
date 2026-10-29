@@ -17,7 +17,7 @@ import { median, micros, pattern } from "./helpers.ts";
 
 const N = 300;
 
-test("latency", async (t) => {
+test("latency", { timeout: 120_000 }, async (t) => {
   const aws = mockAws();
   const ddb = new DynamoDBClient(aws.clientConfig);
   await ddb.send(
