@@ -27,7 +27,14 @@ try (var mock = Wasmo.create()) {
 }
 ```
 
-> **Status:** early development. The Go adapter (AWS SDK for Go v2), the JavaScript adapter (AWS SDK for JavaScript v3), and the JVM adapter (AWS SDK for Java v2) run STS, SQS, DynamoDB, S3, SNS, EventBridge, Secrets Manager, SSM Parameter Store, and KMS. None is published yet.
+```csharp
+using var mock = WasmoMock.Create();
+using var ddb = new AmazonDynamoDBClient(mock.Configure(new AmazonDynamoDBConfig()));
+await ddb.PutItemAsync("users", item);
+var out = await ddb.GetItemAsync("users", key);
+```
+
+> **Status:** early development. The Go adapter (AWS SDK for Go v2), the JavaScript adapter (AWS SDK for JavaScript v3), the JVM adapter (AWS SDK for Java v2), and the .NET adapter (AWS SDK for .NET v4) run STS, SQS, DynamoDB, S3, SNS, EventBridge, Secrets Manager, SSM Parameter Store, and KMS. None is published yet.
 
 | Service | Coverage |
 | --- | --- |
@@ -121,6 +128,42 @@ test("rejects a duplicate", async () => {
 
 Jest: the package is ESM, so run Jest in ESM mode (`NODE_OPTIONS=--experimental-vm-modules npx jest`). The test body is the same as with Vitest, using Jest's globals.
 
+## .NET
+
+`Wasmo` (NuGet, `net8.0` and later) plugs into the AWS SDK for .NET v4 through `ClientConfig.HttpClientFactory`. The WebAssembly module is embedded in the assembly and runs on [wasmtime-dotnet](https://github.com/bytecodealliance/wasmtime-dotnet) (the `Wasmtime` package, which ships the native `libwasmtime` for Linux, macOS, and Windows). The module is compiled once per process; each `WasmoMock` gets its own store and instance, and calls into one instance are serialized.
+
+```csharp
+using Amazon.S3;
+using Amazon.SQS;
+using Wasmo;
+
+using var mock = WasmoMock.Create();
+using var sqs = new AmazonSQSClient(mock.Configure(new AmazonSQSConfig()));
+using var s3 = new AmazonS3Client(mock.Configure(new AmazonS3Config { ForcePathStyle = true }));
+```
+
+`Configure` sets `ServiceURL` (`http://wasmo.local`), `AuthenticationRegion` (`us-east-1`), dummy `DefaultAWSCredentials`, and an `HttpClientFactory` whose handler answers every request from the mock, then returns the config. `mock.Handler` is the underlying `HttpMessageHandler`. S3 works with path-style and virtual-hosted addressing (`<bucket>.wasmo.local`), the SDK's `aws-chunked` bodies with checksum trailers, and `TransferUtility` multipart uploads. Disposing the mock releases the instance; later requests throw `ObjectDisposedException`.
+
+xUnit:
+
+```csharp
+public class OrdersTest
+{
+    [Fact]
+    public async Task RejectsADuplicate()
+    {
+        using var mock = WasmoMock.Create();
+        using var ddb = new AmazonDynamoDBClient(mock.Configure(new AmazonDynamoDBConfig()));
+        // create the table, then:
+        var put = new PutItemRequest { TableName = "orders", Item = item, ConditionExpression = "attribute_not_exists(id)" };
+        await ddb.PutItemAsync(put);
+        await Assert.ThrowsAsync<ConditionalCheckFailedException>(() => ddb.PutItemAsync(put));
+    }
+}
+```
+
+On NixOS, use the `dotnet-sdk_8` (or newer) package from nixpkgs, as the dev shell does. Its host process already loads `libgcc_s.so.1`, the one library `libwasmtime.so` needs beyond glibc, so the native library from the NuGet package loads without `patchelf`, `LD_LIBRARY_PATH`, or nix-ld.
+
 ## Layout
 
 | Path | Contents |
@@ -130,6 +173,7 @@ Jest: the package is ESM, so run Jest in ESM mode (`NODE_OPTIONS=--experimental-
 | `go/` | Go adapter (`github.com/conao3/wasm-wasmo/go`) built on wazero |
 | `js/` | JavaScript / TypeScript adapter (`@conao3/wasmo`) for the AWS SDK for JavaScript v3 |
 | `jvm/` | Java/Kotlin adapter (`io.github.conao3:wasmo`) built on Chicory, compiled to JVM bytecode at build time |
+| `dotnet/` | .NET adapter (NuGet `Wasmo`) for the AWS SDK for .NET v4, built on wasmtime-dotnet |
 | `vendor/` | Vendored upstream test data (see `vendor/PROVENANCE.md`) |
 
 ## Development
@@ -138,8 +182,8 @@ Tools come from the Nix dev shell.
 
 ```sh
 nix develop
-make test   # cargo test + build wasm + go test + node --test + bun test + mvn verify
-make lint   # rustfmt, clippy, gofmt, go vet, tsc, prettier, google-java-format, javac -Xlint
+make test   # cargo test + build wasm + go test + node --test + bun test + mvn verify + dotnet test
+make lint   # rustfmt, clippy, gofmt, go vet, tsc, prettier, google-java-format, javac -Xlint, dotnet format, dotnet build (warnings as errors)
 ```
 
 ## License
