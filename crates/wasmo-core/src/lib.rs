@@ -197,11 +197,22 @@ impl<E: Env> Emulator<E> {
 }
 
 const CBOR: &str = "smithy-rpc-v2-cbor";
+/// awsJson with a CBOR body (`application/x-amz-cbor-1.1`), which the AWS SDK
+/// for Java sends to Kinesis.
+const AWS_CBOR: &str = "aws-cbor";
+const AWS_CBOR_CONTENT_TYPE: &str = "application/x-amz-cbor-1.1";
 
 /// Picks the protocol of `req` among those the model lists, so a service
 /// offering several (CloudWatch) answers each client in the one it speaks.
 fn request_protocol<'m>(model: &'m ServiceModel, req: &Request) -> &'m str {
     let meta = &model.metadata;
+    if meta.protocol == "json"
+        && req
+            .header("content-type")
+            .is_some_and(|c| c.starts_with("application/x-amz-cbor"))
+    {
+        return AWS_CBOR;
+    }
     if meta.protocols.len() > 1 {
         let wanted = if req.header("smithy-protocol") == Some("rpc-v2-cbor") {
             CBOR
@@ -228,7 +239,7 @@ fn resolve<'m>(model: &'m ServiceModel, protocol: &str, req: &Request) -> Option
             let action = query::form_value(&form, "Action")?;
             model.operations.get(action)
         }
-        "json" => {
+        "json" | AWS_CBOR => {
             let target = req.header("x-amz-target")?;
             model
                 .operations
@@ -261,7 +272,8 @@ fn parse_input(
     let reg = &model.registry;
     let shape = op.input.as_ref().map(|i| reg.shape(&i.shape));
     match protocol {
-        CBOR => cbor::parse_input(reg, &req.body, shape),
+        CBOR => cbor::parse_input(reg, &req.body, shape, cbor::Epoch::Seconds),
+        AWS_CBOR => cbor::parse_input(reg, &req.body, shape, cbor::Epoch::Millis),
         "query" => Ok(query_codec::parse_input(
             &query_form(req),
             reg,
@@ -298,7 +310,18 @@ fn serialize_output(
     match protocol {
         CBOR => {
             let shape = op.output.as_ref().map(|o| reg.shape(&o.shape));
-            cbor_response(200, cbor::serialize(reg, output, shape))
+            cbor_response(
+                200,
+                cbor::serialize(reg, output, shape, cbor::Epoch::Seconds),
+            )
+        }
+        AWS_CBOR => {
+            let shape = op.output.as_ref().map(|o| reg.shape(&o.shape));
+            Response::new(
+                200,
+                AWS_CBOR_CONTENT_TYPE,
+                cbor::serialize(reg, output, shape, cbor::Epoch::Millis),
+            )
         }
         p @ ("query" | "ec2") => {
             let dialect = if p == "ec2" {
@@ -396,7 +419,19 @@ fn serialize_error(
             if let Some((name, _)) = modeled {
                 error.code = name.to_string();
             }
-            let mut res = cbor_response(status, cbor::error_body(reg, &error, shape));
+            let mut res = cbor_response(
+                status,
+                cbor::error_body(reg, &error, shape, cbor::Epoch::Seconds),
+            );
+            query_error_header(model, &mut res, &query_code, error.sender_fault);
+            res
+        }
+        AWS_CBOR => {
+            if let Some((name, _)) = modeled {
+                error.code = name.to_string();
+            }
+            let body = cbor::error_body(reg, &error, shape, cbor::Epoch::Millis);
+            let mut res = Response::new(status, AWS_CBOR_CONTENT_TYPE, body);
             query_error_header(model, &mut res, &query_code, error.sender_fault);
             res
         }

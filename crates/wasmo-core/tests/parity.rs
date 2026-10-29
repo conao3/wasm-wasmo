@@ -92,7 +92,9 @@ impl Client {
                 headers.push(("smithy-protocol".to_string(), "rpc-v2-cbor".to_string()));
                 headers.push(("accept".to_string(), "application/cbor".to_string()));
                 let shape = op.input.as_ref().map(|i| reg.shape(&i.shape));
-                let body = shape.map_or_else(Vec::new, |s| cbor::serialize(reg, &input, Some(s)));
+                let body = shape.map_or_else(Vec::new, |s| {
+                    cbor::serialize(reg, &input, Some(s), cbor::Epoch::Seconds)
+                });
                 if !body.is_empty() {
                     headers.push(("content-type".to_string(), "application/cbor".to_string()));
                 }
@@ -336,6 +338,7 @@ impl Client {
                 reg,
                 &cbor::decode(&res.body).unwrap(),
                 shape,
+                cbor::Epoch::Seconds,
             )),
             "json" => Ok(json::from_wire(
                 reg,

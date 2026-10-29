@@ -542,6 +542,7 @@ fn cbor_json(bytes: &[u8]) -> Result<Value, String> {
         &Registry::default(),
         &cbor::decode(bytes)?,
         &doc,
+        cbor::Epoch::Seconds,
     ))
 }
 
@@ -559,8 +560,13 @@ fn run_cbor_case(
     };
     if direction == "input" {
         let shape = op.input.as_ref().map(|i| reg.shape(&i.shape));
-        let actual = cbor::parse_input(reg, &b64("serialized", "body")?, shape)
-            .map_err(|e| format!("{}: {}", e.code, e.message))?;
+        let actual = cbor::parse_input(
+            reg,
+            &b64("serialized", "body")?,
+            shape,
+            cbor::Epoch::Seconds,
+        )
+        .map_err(|e| format!("{}: {}", e.code, e.message))?;
         return compare_params(&actual, case);
     }
     let expected = cbor_json(&b64("response", "body")?)?;
@@ -571,7 +577,7 @@ fn run_cbor_case(
         if let Some(name) = &shape_name {
             error.code = name.clone();
         }
-        cbor::error_body(reg, &error, shape)
+        cbor::error_body(reg, &error, shape, cbor::Epoch::Seconds)
     } else {
         let result = case
             .get("result")
@@ -581,6 +587,7 @@ fn run_cbor_case(
             reg,
             &result,
             op.output.as_ref().map(|o| reg.shape(&o.shape)),
+            cbor::Epoch::Seconds,
         )
     };
     compare_json(&cbor_json(&actual)?, &expected.to_string())

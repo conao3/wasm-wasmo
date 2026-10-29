@@ -1,5 +1,6 @@
-//! Smithy RPC v2 CBOR protocol: the CBOR data model (RFC 8949) and its
-//! mapping to botocore parameters.
+//! CBOR (RFC 8949) and its mapping to botocore parameters, for Smithy RPC v2
+//! CBOR and for the CBOR body that awsJson services accept as
+//! `application/x-amz-cbor-1.1`.
 
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
@@ -8,6 +9,14 @@ use serde_json::{Map, Value};
 use super::AwsError;
 use super::time;
 use crate::model::{Registry, Shape};
+
+/// Unit of tag-1 timestamps: RPC v2 CBOR sends epoch seconds, the
+/// `application/x-amz-cbor-1.1` body of awsJson services epoch milliseconds.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Epoch {
+    Seconds,
+    Millis,
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Cbor {
@@ -256,7 +265,7 @@ fn text_key(c: &Cbor) -> Option<&str> {
 }
 
 /// Converts a decoded CBOR item into botocore parameters for `shape`.
-pub fn from_wire(reg: &Registry, c: &Cbor, shape: &Shape) -> Value {
+pub fn from_wire(reg: &Registry, c: &Cbor, shape: &Shape, epoch: Epoch) -> Value {
     match (shape.kind.as_str(), c) {
         (_, Cbor::Null | Cbor::Undefined) => Value::Null,
         ("structure", Cbor::Map(entries)) if shape.document => Value::Object(untyped_map(entries)),
@@ -270,13 +279,21 @@ pub fn from_wire(reg: &Registry, c: &Cbor, shape: &Shape) -> Value {
                 if matches!(v, Cbor::Null | Cbor::Undefined) {
                     continue;
                 }
-                out.insert(name.to_string(), from_wire(reg, v, reg.member_shape(m)));
+                out.insert(
+                    name.to_string(),
+                    from_wire(reg, v, reg.member_shape(m), epoch),
+                );
             }
             Value::Object(out)
         }
         ("list", Cbor::Array(items)) => {
             let item = reg.member_shape(shape.member.as_deref().expect("list member"));
-            Value::Array(items.iter().map(|i| from_wire(reg, i, item)).collect())
+            Value::Array(
+                items
+                    .iter()
+                    .map(|i| from_wire(reg, i, item, epoch))
+                    .collect(),
+            )
         }
         ("map", Cbor::Map(entries)) => {
             let value = reg.member_shape(shape.value.as_deref().expect("map value"));
@@ -284,12 +301,19 @@ pub fn from_wire(reg: &Registry, c: &Cbor, shape: &Shape) -> Value {
                 entries
                     .iter()
                     .filter(|(_, v)| !matches!(v, Cbor::Null | Cbor::Undefined))
-                    .filter_map(|(k, v)| Some((text_key(k)?.to_string(), from_wire(reg, v, value))))
+                    .filter_map(|(k, v)| {
+                        Some((text_key(k)?.to_string(), from_wire(reg, v, value, epoch)))
+                    })
                     .collect(),
             )
         }
         ("blob", Cbor::Bytes(b)) => Value::String(STANDARD.encode(b)),
-        ("timestamp", _) => number(c).map_or(Value::Null, time::epoch_value),
+        ("timestamp", _) => number(c).map_or(Value::Null, |n| {
+            time::epoch_value(match epoch {
+                Epoch::Seconds => n,
+                Epoch::Millis => n / 1000.0,
+            })
+        }),
         ("float" | "double", _) => number(c).map_or(Value::Null, float_value),
         (_, other) => untyped(other),
     }
@@ -359,7 +383,7 @@ fn untyped_to_wire(v: &Value) -> Cbor {
 }
 
 /// Converts botocore parameters for `shape` into a CBOR item.
-pub fn to_wire(reg: &Registry, v: &Value, shape: &Shape) -> Cbor {
+pub fn to_wire(reg: &Registry, v: &Value, shape: &Shape, epoch: Epoch) -> Cbor {
     if v.is_null() {
         return Cbor::Null;
     }
@@ -372,7 +396,10 @@ pub fn to_wire(reg: &Registry, v: &Value, shape: &Shape) -> Cbor {
                 .filter(|(_, x)| !x.is_null())
                 .filter_map(|(k, x)| {
                     let m = shape.members.get(k)?;
-                    Some((Cbor::Text(k.clone()), to_wire(reg, x, reg.member_shape(m))))
+                    Some((
+                        Cbor::Text(k.clone()),
+                        to_wire(reg, x, reg.member_shape(m), epoch),
+                    ))
                 })
                 .collect(),
         ),
@@ -382,7 +409,7 @@ pub fn to_wire(reg: &Registry, v: &Value, shape: &Shape) -> Cbor {
                 v.as_array()
                     .into_iter()
                     .flatten()
-                    .map(|x| to_wire(reg, x, item))
+                    .map(|x| to_wire(reg, x, item, epoch))
                     .collect(),
             )
         }
@@ -393,7 +420,7 @@ pub fn to_wire(reg: &Registry, v: &Value, shape: &Shape) -> Cbor {
                     .into_iter()
                     .flatten()
                     .filter(|(_, x)| !x.is_null())
-                    .map(|(k, x)| (Cbor::Text(k.clone()), to_wire(reg, x, value)))
+                    .map(|(k, x)| (Cbor::Text(k.clone()), to_wire(reg, x, value, epoch)))
                     .collect(),
             )
         }
@@ -402,10 +429,16 @@ pub fn to_wire(reg: &Registry, v: &Value, shape: &Shape) -> Cbor {
                 .and_then(|s| STANDARD.decode(s).ok())
                 .unwrap_or_default(),
         ),
-        "timestamp" => Cbor::Tag(
-            1,
-            Box::new(Cbor::Float(time::value_epoch(v).unwrap_or_default())),
-        ),
+        "timestamp" => {
+            let seconds = time::value_epoch(v).unwrap_or_default();
+            Cbor::Tag(
+                1,
+                Box::new(match epoch {
+                    Epoch::Seconds => Cbor::Float(seconds),
+                    Epoch::Millis => int(&Value::from((seconds * 1000.0).round() as i64)),
+                }),
+            )
+        }
         "boolean" => Cbor::Bool(v.as_bool().unwrap_or(v.as_str() == Some("true"))),
         "integer" | "long" | "short" | "byte" | "bigInteger" => int(v),
         "float" | "double" | "bigDecimal" => float(v),
@@ -416,7 +449,12 @@ pub fn to_wire(reg: &Registry, v: &Value, shape: &Shape) -> Cbor {
     }
 }
 
-pub fn parse_input(reg: &Registry, body: &[u8], shape: Option<&Shape>) -> Result<Value, AwsError> {
+pub fn parse_input(
+    reg: &Registry,
+    body: &[u8],
+    shape: Option<&Shape>,
+    epoch: Epoch,
+) -> Result<Value, AwsError> {
     let Some(shape) = shape else {
         return Ok(Value::Object(Map::new()));
     };
@@ -424,21 +462,26 @@ pub fn parse_input(reg: &Registry, body: &[u8], shape: Option<&Shape>) -> Result
         return Ok(Value::Object(Map::new()));
     }
     let c = decode(body).map_err(|e| AwsError::new(400, "SerializationException", e))?;
-    Ok(match from_wire(reg, &c, shape) {
+    Ok(match from_wire(reg, &c, shape, epoch) {
         Value::Null => Value::Object(Map::new()),
         v => v,
     })
 }
 
-pub fn serialize(reg: &Registry, value: &Value, shape: Option<&Shape>) -> Vec<u8> {
-    let c = shape.map_or(Cbor::Map(Vec::new()), |s| to_wire(reg, value, s));
+pub fn serialize(reg: &Registry, value: &Value, shape: Option<&Shape>, epoch: Epoch) -> Vec<u8> {
+    let c = shape.map_or(Cbor::Map(Vec::new()), |s| to_wire(reg, value, s, epoch));
     let mut out = Vec::new();
     encode(&c, &mut out);
     out
 }
 
-/// Body of an RPC v2 CBOR error: `__type`, `message`, and the modeled members.
-pub fn error_body(reg: &Registry, error: &AwsError, shape: Option<&Shape>) -> Vec<u8> {
+/// Body of a CBOR error: `__type`, `message`, and the modeled members.
+pub fn error_body(
+    reg: &Registry,
+    error: &AwsError,
+    shape: Option<&Shape>,
+    epoch: Epoch,
+) -> Vec<u8> {
     let mut entries = vec![(
         Cbor::Text("__type".to_string()),
         Cbor::Text(error.code.clone()),
@@ -453,7 +496,7 @@ pub fn error_body(reg: &Registry, error: &AwsError, shape: Option<&Shape>) -> Ve
         ));
     }
     if let Some(Cbor::Map(members)) =
-        shape.map(|s| to_wire(reg, &Value::Object((*error.data).clone()), s))
+        shape.map(|s| to_wire(reg, &Value::Object((*error.data).clone()), s, epoch))
     {
         entries.extend(
             members
