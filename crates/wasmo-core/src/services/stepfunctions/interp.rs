@@ -10,9 +10,10 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use serde_json::{Map, Value, json};
 
-use super::asl::{self, Failure, Scope, path, template};
+use super::asl::{self, Failure, Scope, template};
 use super::task::{self, Kind, Pattern, Plan, Request};
 use crate::codec::time::format_iso8601;
+use crate::jsonpath as path;
 use crate::service::{Ctx, OpResult};
 
 const MAX_EVENTS: usize = 25_000;

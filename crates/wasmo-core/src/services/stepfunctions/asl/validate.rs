@@ -3,7 +3,8 @@
 
 use serde_json::Value;
 
-use super::{intrinsic, path};
+use super::intrinsic;
+use crate::jsonpath as path;
 
 const TYPES: &[&str] = &[
     "Pass", "Task", "Choice", "Wait", "Succeed", "Fail", "Parallel", "Map",

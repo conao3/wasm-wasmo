@@ -1,6 +1,6 @@
-//! The JSONPath subset Amazon States Language accepts: dot and bracket
-//! members, indexes (negative from the end), `*`, slices, `..` descent, and
-//! `[?(@.path <op> literal)]` filters.
+//! The JSONPath subset Amazon States Language and API Gateway mapping
+//! templates accept: dot and bracket members, indexes (negative from the end),
+//! `*`, slices, `..` descent, and `[?(@.path <op> literal)]` filters.
 
 use serde_json::{Map, Value};
 

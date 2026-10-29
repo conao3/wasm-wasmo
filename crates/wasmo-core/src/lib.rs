@@ -1,6 +1,7 @@
 pub mod chunked;
 pub mod codec;
 pub mod env;
+pub mod jsonpath;
 pub mod model;
 pub mod query;
 pub mod route;

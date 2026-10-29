@@ -2,12 +2,12 @@
 //! Choice rules, and definition validation.
 
 pub mod intrinsic;
-pub mod path;
 pub mod validate;
 
 use serde_json::{Map, Value};
 
 use crate::codec::time::parse_iso8601;
+use crate::jsonpath as path;
 use crate::service::Ctx;
 
 /// A state's error: the name `ErrorEquals` matches and the cause text.
