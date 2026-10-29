@@ -1,0 +1,49 @@
+{
+  "name": "@conao3/wasmo",
+  "version": "0.1.0",
+  "description": "Stateful in-process AWS mock for the AWS SDK for JavaScript v3, powered by a single WebAssembly module",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/conao3/wasm-wasmo.git",
+    "directory": "js"
+  },
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "wasmo.wasm"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsc -p .",
+    "typecheck": "tsc -p tsconfig.test.json",
+    "test": "node --test test/*.test.ts",
+    "test:bun": "bun test",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "prepack": "tsc -p ."
+  },
+  "dependencies": {
+    "@smithy/types": "^4.19.0"
+  },
+  "devDependencies": {
+    "@aws-sdk/client-dynamodb": "^3.1159.0",
+    "@aws-sdk/client-s3": "^3.1159.0",
+    "@aws-sdk/client-sqs": "^3.1159.0",
+    "@aws-sdk/client-sts": "^3.1159.0",
+    "@aws-sdk/lib-dynamodb": "^3.1159.0",
+    "@aws-sdk/lib-storage": "^3.1159.0",
+    "@types/node": "^20.19.43",
+    "prettier": "^3.9.10",
+    "typescript": "^7.0.2"
+  }
+}

@@ -1,0 +1,4 @@
+node_modules/
+dist/
+wasmo.wasm
+*.tgz
