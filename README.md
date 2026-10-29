@@ -8,12 +8,22 @@ No Docker, no ports, no sidecar process. Write a value to DynamoDB and the next 
 m, _ := wasmo.New(ctx)
 defer m.Close(ctx)
 
-client := sts.NewFromConfig(m.Config())
-out, _ := client.GetCallerIdentity(ctx, &sts.GetCallerIdentityInput{})
-// *out.Account == "000000000000"
+client := dynamodb.NewFromConfig(m.Config())
+client.PutItem(ctx, &dynamodb.PutItemInput{TableName: aws.String("users"), Item: item})
+out, _ := client.GetItem(ctx, &dynamodb.GetItemInput{TableName: aws.String("users"), Key: key})
+// out.Item is the item written above
 ```
 
-> **Status:** early development. The pipeline (Rust core → WebAssembly → Go adapter → AWS SDK for Go v2) works end to end with STS `GetCallerIdentity`. Protocol codecs and services are being ported next.
+> **Status:** early development. The Go adapter runs STS, SQS, DynamoDB, and S3 through the AWS SDK for Go v2. Adapters for other languages are not published yet.
+
+| Service | Coverage |
+| --- | --- |
+| STS | Caller identity, assume-role family, session and federation tokens |
+| SQS | All 23 operations: standard and FIFO queues, batches, visibility, dead-letter redrive, move tasks |
+| DynamoDB | Tables and indexes, items with condition/update/projection expressions, Query/Scan, batches, transactions, PartiQL, TTL, backups |
+| S3 | Buckets, objects, listing, multipart, versioning, checksums, tagging, ACLs, Object Lock, bucket configuration, presigned GET, virtual-hosted and path-style addressing |
+
+The protocol codecs (awsQuery, ec2, awsJson 1.0/1.1, rest-json, rest-xml) are checked against botocore's protocol test suite; every case either passes or is listed in `crates/wasmo-core/tests/conformance-gaps.txt` as client-only behaviour.
 
 ## How it works
 
