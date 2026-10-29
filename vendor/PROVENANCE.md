@@ -82,6 +82,7 @@ aws-models/
   iam.json            # botocore/data/iam/2010-05-08/service-2.json            (protocol query)
   lambda.json         # botocore/data/lambda/2015-03-31/service-2.json         (protocol rest-json)
   stepfunctions.json  # botocore/data/stepfunctions/2016-11-23/service-2.json (protocol json, signingName states)
+  apigateway.json     # botocore/data/apigateway/2015-07-09/service-2.json     (protocol rest-json)
 ```
 
 `crates/wasmo-core/build.rs` strips documentation fields at build time; the

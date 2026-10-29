@@ -1,5 +1,6 @@
 use crate::service::Service;
 
+pub mod apigateway;
 pub mod cloudwatch;
 pub mod dynamodb;
 pub mod events;
@@ -38,6 +39,7 @@ pub fn all() -> Vec<Box<dyn Service>> {
         Box::new(iam::Iam::default()),
         Box::new(lambda::Lambda::default()),
         Box::new(stepfunctions::StepFunctions::default()),
+        Box::new(apigateway::ApiGateway::default()),
     ]
 }
 

@@ -1,3 +1,6 @@
+apigateway/create-get-rest-api
+apigateway/errors
+apigateway/resource-method-chain
 dynamodb/batch-execute-statement
 dynamodb/execute-statement-dml
 dynamodb/execute-statement-select
