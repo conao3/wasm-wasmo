@@ -46,6 +46,10 @@
               pkgs.wabt
               pkgs.gnumake
               pkgs.jq
+              pkgs.actionlint
+              pkgs.shellcheck
+              pkgs.zip
+              pkgs.unzip
               pkgs.jdk17
               pkgs.maven
               pkgs.dotnet-sdk_8
