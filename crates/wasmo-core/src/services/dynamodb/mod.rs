@@ -1,8 +1,10 @@
+mod admin;
 mod attr;
 mod expr;
 mod items;
 mod legacy;
 mod number;
+mod partiql;
 mod table;
 
 use std::collections::{BTreeMap, HashMap};
@@ -257,6 +259,45 @@ impl Service for DynamoDb {
             "BatchWriteItem" => items::batch_write(region, input),
             "TransactGetItems" => items::transact_get(region, input),
             "TransactWriteItems" => items::transact_write(region, ctx, input),
+            "ExecuteStatement" => partiql::execute(region, input),
+            "BatchExecuteStatement" => partiql::batch_execute(region, input),
+            "ExecuteTransaction" => partiql::execute_transaction(region, input),
+            "CreateBackup" => admin::create_backup(region, ctx, input),
+            "DescribeBackup" => admin::describe_backup(region, ctx, input),
+            "ListBackups" => admin::list_backups(region, ctx, input),
+            "DeleteBackup" => admin::delete_backup(region, ctx, input),
+            "RestoreTableFromBackup" => admin::restore_from_backup(region, ctx, input),
+            "RestoreTableToPointInTime" => admin::restore_to_point_in_time(region, ctx, input),
+            "UpdateContinuousBackups" => admin::update_continuous_backups(region, ctx, input),
+            "DescribeContinuousBackups" => admin::describe_continuous_backups(region, ctx, input),
+            "PutResourcePolicy" => admin::put_policy(region, ctx, input),
+            "GetResourcePolicy" => admin::get_policy(region, input),
+            "DeleteResourcePolicy" => admin::delete_policy(region, input),
+            "CreateGlobalTable" => admin::create_global_table(region, ctx, input),
+            "DescribeGlobalTable" => admin::describe_global_table(region, ctx, input),
+            "UpdateGlobalTable" => admin::update_global_table(region, ctx, input),
+            "ListGlobalTables" => admin::list_global_tables(region, input),
+            "DescribeGlobalTableSettings" | "UpdateGlobalTableSettings" => {
+                admin::global_table_settings(region, input)
+            }
+            "ExportTableToPointInTime" => admin::export_table(region, ctx, input),
+            "DescribeExport" => admin::describe_export(region, input),
+            "ListExports" => admin::list_exports(region, input),
+            "ImportTable" => admin::import_table(region, ctx, input),
+            "DescribeImport" => admin::describe_import(region, input),
+            "ListImports" => admin::list_imports(region, input),
+            "EnableKinesisStreamingDestination"
+            | "DisableKinesisStreamingDestination"
+            | "UpdateKinesisStreamingDestination" => {
+                admin::kinesis_destination(region, operation, input)
+            }
+            "DescribeKinesisStreamingDestination" => admin::describe_kinesis(region, input),
+            "DescribeContributorInsights" => admin::describe_insights(region, input),
+            "UpdateContributorInsights" => admin::update_insights(region, input),
+            "ListContributorInsights" => admin::list_insights(region, input),
+            "DescribeTableReplicaAutoScaling" | "UpdateTableReplicaAutoScaling" => {
+                admin::replica_auto_scaling(region, input)
+            }
             other => Err(err(
                 "UnknownOperationException",
                 format!("wasmo: {other} is not implemented"),

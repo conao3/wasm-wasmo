@@ -320,6 +320,41 @@ fn ttl_expires_items_lazily() {
 }
 
 #[test]
+fn backups_restore_items_into_a_new_table() {
+    let mut c = with_table();
+    let b = c.ok(
+        "CreateBackup",
+        json!({"TableName": "music", "BackupName": "nightly"}),
+    );
+    let arn = b["BackupDetails"]["BackupArn"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert!(arn.starts_with("arn:aws:dynamodb:us-east-1:000000000000:table/music/backup/"));
+    c.ok(
+        "DeleteItem",
+        json!({"TableName": "music", "Key": {"artist": {"S": "zed"}, "song": {"S": "a"}}}),
+    );
+    c.ok(
+        "RestoreTableFromBackup",
+        json!({"TargetTableName": "music-restored", "BackupArn": arn}),
+    );
+    let d = c.ok("DescribeTable", json!({"TableName": "music-restored"}));
+    assert_eq!(d["Table"]["ItemCount"], 4);
+    assert_eq!(
+        d["Table"]["RestoreSummary"]["SourceBackupArn"],
+        arn.as_str()
+    );
+    let e = c.fail(
+        "RestoreTableToPointInTime",
+        json!({"SourceTableName": "music", "TargetTableName": "music-pitr"}),
+    );
+    assert_eq!(e["__type"], "PointInTimeRecoveryUnavailableException");
+    let listed = c.ok("ListBackups", json!({"TableName": "music"}));
+    assert_eq!(listed["BackupSummaries"][0]["BackupName"], "nightly");
+}
+
+#[test]
 fn update_table_creates_and_deletes_global_indexes() {
     let mut c = with_table();
     let out = c.ok(

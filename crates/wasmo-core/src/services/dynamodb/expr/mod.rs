@@ -194,6 +194,14 @@ impl Bindings {
         Ok(b)
     }
 
+    pub fn with(names: BTreeMap<String, String>, values: BTreeMap<String, Attr>) -> Self {
+        Self {
+            names,
+            values,
+            ..Self::default()
+        }
+    }
+
     pub fn check_unused(&self) -> Result<(), AwsError> {
         let unused_names: Vec<&str> = self
             .names
