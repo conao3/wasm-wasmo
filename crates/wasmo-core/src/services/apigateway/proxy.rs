@@ -18,6 +18,7 @@ pub struct In {
     pub path: String,
     /// Path as the client sent it, including the stage.
     pub raw_path: String,
+    pub raw_query: String,
     pub query: Vec<(String, String)>,
     pub headers: Vec<(String, String)>,
     pub body: Vec<u8>,
@@ -43,6 +44,7 @@ impl In {
                 path.to_string()
             },
             raw_path: req.path.clone(),
+            raw_query: req.query.clone(),
             query,
             headers: req
                 .headers
@@ -285,6 +287,89 @@ pub fn event_v1(ctx: &Ctx<'_>, r: &In, c: &Context<'_>) -> Value {
         "body": body,
         "isBase64Encoded": b64,
     })
+}
+
+/// The Lambda proxy event in payload format 2.0 (HTTP APIs).
+pub fn event_v2(ctx: &Ctx<'_>, r: &In, c: &Context<'_>) -> Value {
+    let (time, epoch) = request_time(ctx);
+    let (body, b64) = r.payload_body();
+    let domain = r.host.split(':').next().unwrap_or_default();
+    let mut headers = Map::new();
+    let mut cookies = Vec::new();
+    for (k, v) in &r.headers {
+        if k.eq_ignore_ascii_case("cookie") {
+            cookies.extend(v.split(';').map(|c| json!(c.trim())));
+            continue;
+        }
+        let k = k.to_lowercase();
+        match headers.get_mut(&k) {
+            Some(Value::String(prev)) => {
+                prev.push(',');
+                prev.push_str(v);
+            }
+            _ => {
+                headers.insert(k, json!(v));
+            }
+        }
+    }
+    let mut query = Map::new();
+    for (k, v) in &r.query {
+        match query.get_mut(k) {
+            Some(Value::String(prev)) => {
+                prev.push(',');
+                prev.push_str(v);
+            }
+            _ => {
+                query.insert(k.clone(), json!(v));
+            }
+        }
+    }
+    let mut rc = json!({
+        "accountId": c.account,
+        "apiId": c.api_id,
+        "domainName": domain,
+        "domainPrefix": domain.split('.').next().unwrap_or_default(),
+        "http": {
+            "method": r.method,
+            "path": r.raw_path,
+            "protocol": "HTTP/1.1",
+            "sourceIp": r.header("x-forwarded-for").unwrap_or("127.0.0.1"),
+            "userAgent": r.header("user-agent").unwrap_or_default(),
+        },
+        "requestId": c.request_id,
+        "routeKey": c.route_key,
+        "stage": c.stage,
+        "time": time,
+        "timeEpoch": epoch,
+    });
+    if let Some(a) = c.authorizer {
+        rc["authorizer"] = a.clone();
+    }
+    let mut e = json!({
+        "version": "2.0",
+        "routeKey": c.route_key,
+        "rawPath": r.raw_path,
+        "rawQueryString": r.raw_query,
+        "headers": headers,
+        "requestContext": rc,
+        "isBase64Encoded": b64,
+    });
+    if !cookies.is_empty() {
+        e["cookies"] = json!(cookies);
+    }
+    if !query.is_empty() {
+        e["queryStringParameters"] = Value::Object(query);
+    }
+    if !c.params.is_empty() {
+        e["pathParameters"] = Value::Object(c.params.clone());
+    }
+    if c.stage_variables.as_object().is_some_and(|v| !v.is_empty()) {
+        e["stageVariables"] = c.stage_variables.clone();
+    }
+    if !body.is_null() {
+        e["body"] = body;
+    }
+    e
 }
 
 pub fn json_response(status: u16, body: &Value) -> Response {

@@ -22,6 +22,7 @@ const MODELS: &[&str] = &[
     "lambda",
     "stepfunctions",
     "apigateway",
+    "apigatewayv2",
 ];
 const STRIPPED_KEYS: &[&str] = &[
     "documentation",
