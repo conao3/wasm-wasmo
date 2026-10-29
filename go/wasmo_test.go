@@ -8,6 +8,8 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
+	"github.com/aws/aws-sdk-go-v2/service/sqs"
+	sqstypes "github.com/aws/aws-sdk-go-v2/service/sqs/types"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/aws/smithy-go"
 	wasmo "github.com/conao3/wasm-wasmo/go"
@@ -84,5 +86,41 @@ func BenchmarkGetCallerIdentity(b *testing.B) {
 		if _, err := client.GetCallerIdentity(context.Background(), &sts.GetCallerIdentityInput{}); err != nil {
 			b.Fatal(err)
 		}
+	}
+}
+
+func queueWithArn(t testing.TB, client *sqs.Client, name string, attrs map[string]string) (string, string) {
+	t.Helper()
+	ctx := context.Background()
+	created, err := client.CreateQueue(ctx, &sqs.CreateQueueInput{QueueName: aws.String(name), Attributes: attrs})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := client.GetQueueAttributes(ctx, &sqs.GetQueueAttributesInput{
+		QueueUrl:       created.QueueUrl,
+		AttributeNames: []sqstypes.QueueAttributeName{sqstypes.QueueAttributeNameQueueArn},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return aws.ToString(created.QueueUrl), got.Attributes["QueueArn"]
+}
+
+func drain(t testing.TB, client *sqs.Client, url string) []sqstypes.Message {
+	t.Helper()
+	var all []sqstypes.Message
+	for {
+		out, err := client.ReceiveMessage(context.Background(), &sqs.ReceiveMessageInput{
+			QueueUrl:              aws.String(url),
+			MaxNumberOfMessages:   10,
+			MessageAttributeNames: []string{"All"},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(out.Messages) == 0 {
+			return all
+		}
+		all = append(all, out.Messages...)
 	}
 }
