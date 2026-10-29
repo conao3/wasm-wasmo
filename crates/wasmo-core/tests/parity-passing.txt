@@ -75,6 +75,10 @@ ssm/get-parameters-by-path
 ssm/parameter-tags-leading-slash
 ssm/parameter-versioning
 ssm/put-get-parameter
+stepfunctions/create-state-machine
+stepfunctions/execution-lifecycle
+stepfunctions/list-executions
+stepfunctions/version-description
 sts/assume-role
 sts/get-caller-identity
 sts/get-federation-token

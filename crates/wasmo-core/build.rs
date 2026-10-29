@@ -20,6 +20,7 @@ const MODELS: &[&str] = &[
     "cloudwatch",
     "iam",
     "lambda",
+    "stepfunctions",
 ];
 const STRIPPED_KEYS: &[&str] = &[
     "documentation",

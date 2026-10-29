@@ -15,6 +15,7 @@ pub mod secretsmanager;
 pub mod sns;
 pub mod sqs;
 pub mod ssm;
+pub mod stepfunctions;
 pub mod sts;
 
 pub fn all() -> Vec<Box<dyn Service>> {
@@ -36,6 +37,7 @@ pub fn all() -> Vec<Box<dyn Service>> {
         Box::new(cloudwatch::CloudWatch::default()),
         Box::new(iam::Iam::default()),
         Box::new(lambda::Lambda::default()),
+        Box::new(stepfunctions::StepFunctions::default()),
     ]
 }
 
