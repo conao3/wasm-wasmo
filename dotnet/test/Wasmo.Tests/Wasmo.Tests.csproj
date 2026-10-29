@@ -5,6 +5,8 @@
     <IsTestProject>true</IsTestProject>
   </PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="AWSSDK.APIGateway" Version="4.0.101.7" />
+    <PackageReference Include="AWSSDK.ApiGatewayV2" Version="4.0.100.22" />
     <PackageReference Include="AWSSDK.CloudWatch" Version="4.0.107.2" />
     <PackageReference Include="AWSSDK.CloudWatchLogs" Version="4.0.106.2" />
     <PackageReference Include="AWSSDK.DynamoDBStreams" Version="4.0.101.3" />
@@ -21,6 +23,7 @@
     <PackageReference Include="AWSSDK.SimpleNotificationService" Version="4.0.100.22" />
     <PackageReference Include="AWSSDK.SimpleSystemsManagement" Version="4.0.104.7" />
     <PackageReference Include="AWSSDK.SQS" Version="4.0.100.21" />
+    <PackageReference Include="AWSSDK.StepFunctions" Version="4.0.101.1" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.11.0" />
     <PackageReference Include="xunit" Version="2.9.3" />
     <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5" />
