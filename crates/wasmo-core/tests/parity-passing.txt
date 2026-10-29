@@ -32,6 +32,11 @@ kms/create-key
 kms/encrypt-decrypt
 kms/generate-random
 kms/list-aliases
+lambda/function-concurrency
+lambda/function-lifecycle
+lambda/function-tags
+lambda/publish-version
+lambda/update-function-configuration
 logs/create-log-group
 logs/create-log-group-error
 logs/get-log-events-identifier

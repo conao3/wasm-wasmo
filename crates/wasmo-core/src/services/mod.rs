@@ -7,8 +7,9 @@ pub mod firehose;
 pub mod iam;
 pub mod kinesis;
 pub mod kms;
+pub mod lambda;
 pub mod logs;
-mod pattern;
+pub(crate) mod pattern;
 pub mod s3;
 pub mod secretsmanager;
 pub mod sns;
@@ -34,6 +35,7 @@ pub fn all() -> Vec<Box<dyn Service>> {
         Box::new(logs::Logs::default()),
         Box::new(cloudwatch::CloudWatch::default()),
         Box::new(iam::Iam::default()),
+        Box::new(lambda::Lambda::default()),
     ]
 }
 

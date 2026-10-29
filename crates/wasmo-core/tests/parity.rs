@@ -154,8 +154,8 @@ impl Client {
                     .join("&");
                 ("POST".to_string(), "/".to_string(), body.into_bytes())
             }
-            "rest-xml" => {
-                let (path, body) = self.rest_xml_request(op, &input, &mut headers);
+            "rest-xml" | "rest-json" => {
+                let (path, body) = self.rest_request(op, &input, &mut headers);
                 (op.http.method.clone(), path, body)
             }
             other => panic!("protocol {other} has no client serializer"),
@@ -171,7 +171,7 @@ impl Client {
         )
     }
 
-    fn rest_xml_request(
+    fn rest_request(
         &self,
         op: &Operation,
         input: &Value,
@@ -284,6 +284,10 @@ impl Client {
                 body = match ms.kind.as_str() {
                     "blob" => STANDARD.decode(v.as_str().unwrap_or_default()).unwrap(),
                     "string" => v.as_str().unwrap_or_default().as_bytes().to_vec(),
+                    _ if self.protocol() == "rest-json" => {
+                        headers.push(("content-type".to_string(), "application/json".to_string()));
+                        serde_json::to_vec(&json::to_wire(reg, v, ms, Some(member))).unwrap()
+                    }
                     _ => {
                         let name = member
                             .location_name
@@ -302,6 +306,20 @@ impl Client {
                         el.to_xml().into_bytes()
                     }
                 };
+            }
+        } else if self.protocol() == "rest-json" {
+            let members: Map<String, Value> = obj
+                .iter()
+                .filter(|(k, v)| {
+                    !v.is_null() && shape.members.get(*k).is_some_and(|m| m.location.is_none())
+                })
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect();
+            if !members.is_empty() {
+                headers.push(("content-type".to_string(), "application/json".to_string()));
+                body =
+                    serde_json::to_vec(&json::to_wire(reg, &Value::Object(members), shape, None))
+                        .unwrap();
             }
         }
         if checksum.is_some_and(|c| c.get("requestAlgorithmMember").is_some()) {
@@ -354,12 +372,12 @@ impl Client {
                 };
                 Ok(read_structure(reg, &result, shape, "iso8601"))
             }
-            "rest-xml" => Ok(self.rest_xml_output(shape, res)),
+            "rest-xml" | "rest-json" => Ok(self.rest_output(shape, res)),
             other => panic!("protocol {other} has no client deserializer"),
         }
     }
 
-    fn rest_xml_output(&self, shape: &Shape, res: &Response) -> Value {
+    fn rest_output(&self, shape: &Shape, res: &Response) -> Value {
         let reg = self.reg();
         let mut out = Map::new();
         for (name, member) in &shape.members {
@@ -407,14 +425,25 @@ impl Client {
                     );
                 }
                 _ if res.body.iter().all(u8::is_ascii_whitespace) => {}
+                _ if self.protocol() == "rest-json" => {
+                    let doc = json::parse_body(&res.body).unwrap();
+                    out.insert(
+                        payload.clone(),
+                        json::from_wire(reg, &doc, ms, Some(member)),
+                    );
+                }
                 _ => {
                     let doc = xml::parse(&res.body).unwrap();
                     out.insert(payload.clone(), read_structure(reg, &doc, ms, "iso8601"));
                 }
             }
         } else if !res.body.iter().all(u8::is_ascii_whitespace) {
-            let doc = xml::parse(&res.body).unwrap();
-            if let Value::Object(body) = read_structure(reg, &doc, shape, "iso8601") {
+            let body = if self.protocol() == "rest-json" {
+                json::from_wire(reg, &json::parse_body(&res.body).unwrap(), shape, None)
+            } else {
+                read_structure(reg, &xml::parse(&res.body).unwrap(), shape, "iso8601")
+            };
+            if let Value::Object(body) = body {
                 for (k, v) in body {
                     if shape.members[&k].location.is_none() {
                         out.insert(k, v);
@@ -443,7 +472,7 @@ impl Client {
                     .map_or(code.as_str(), |(_, c)| c)
                     .to_string()
             }
-            "json" => {
+            "json" | "rest-json" => {
                 let body = json::parse_body(&res.body).unwrap_or_default();
                 let code = body
                     .get("__type")

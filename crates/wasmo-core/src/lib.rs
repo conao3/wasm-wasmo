@@ -9,7 +9,8 @@ pub mod services;
 pub mod wire;
 pub mod xml;
 
-use std::collections::VecDeque;
+use std::any::Any;
+use std::collections::{HashMap, VecDeque};
 use std::io::Read;
 
 use serde_json::Value;
@@ -20,6 +21,7 @@ use env::Env;
 use model::{Operation, Shape};
 use route::Route;
 use service::{Arn, Ctx, Delivery, Service, ServiceModel};
+use services::lambda::{Completion, InvokeResult, Lambda};
 use wire::{Request, Response};
 
 const MAX_DELIVERY_HOPS: usize = 256;
@@ -27,6 +29,17 @@ const MAX_DELIVERY_HOPS: usize = 256;
 pub struct Emulator<E: Env> {
     env: E,
     services: Vec<Box<dyn Service>>,
+    deferred: HashMap<String, Deferred>,
+    /// Count of handled requests; stream event sources that failed retry on a later one.
+    tick: u64,
+}
+
+/// A response held back until the invocation it waits for completes.
+struct Deferred {
+    service: usize,
+    operation: String,
+    protocol: &'static str,
+    request_id: String,
 }
 
 impl<E: Env> Emulator<E> {
@@ -34,10 +47,13 @@ impl<E: Env> Emulator<E> {
         Self {
             env,
             services: services::all(),
+            deferred: HashMap::new(),
+            tick: 0,
         }
     }
 
     pub fn handle(&mut self, req: &Request) -> Response {
+        self.tick += 1;
         let mut rid = [0u8; 16];
         self.env.random_fill(&mut rid);
         let request_id: String = rid.iter().map(|b| format!("{b:02x}")).collect();
@@ -129,6 +145,20 @@ impl<E: Env> Emulator<E> {
                 let result = parse_input(model, protocol, op, req)
                     .and_then(|input| service.call(&mut ctx, &op.name, input));
                 match result {
+                    Ok(_) if ctx.awaiting.is_some() => {
+                        outbox = std::mem::take(&mut ctx.outbox);
+                        let invocation = ctx.awaiting.take().expect("checked above");
+                        self.deferred.insert(
+                            invocation.clone(),
+                            Deferred {
+                                service: index,
+                                operation: op.name.clone(),
+                                protocol,
+                                request_id: request_id.clone(),
+                            },
+                        );
+                        Response::awaiting(invocation)
+                    }
                     Ok(output) => {
                         outbox = std::mem::take(&mut ctx.outbox);
                         let mut res = serialize_output(model, protocol, op, &output, &request_id);
@@ -152,17 +182,112 @@ impl<E: Env> Emulator<E> {
                 )
             }
         };
-        self.route(outbox, &format!("http://{host}"));
+        let endpoint = format!("http://{host}");
+        self.route(outbox, &endpoint);
+        self.pump(&endpoint);
+        if res.awaiting.is_some() {
+            return res;
+        }
         if req.method.eq_ignore_ascii_case("HEAD") || res.status == 304 {
             res.body.clear();
         }
-        res.headers
-            .push(("x-amzn-requestid".to_string(), request_id.clone()));
-        if protocol == "rest-xml" {
-            res.headers
-                .push(("x-amz-request-id".to_string(), request_id));
-        }
+        stamp(&mut res, protocol, request_id);
         res
+    }
+
+    /// Applies the host's answer to an invocation handed out through
+    /// `Env::invoke`. Returns the response of the request that waited for it.
+    pub fn complete(&mut self, meta: &[u8], payload: Vec<u8>) -> Option<Response> {
+        let result = match InvokeResult::parse(meta, payload) {
+            Ok(r) => r,
+            Err(e) => {
+                return Some(Response::text(
+                    400,
+                    format!("wasmo: invalid completion: {e}"),
+                ));
+            }
+        };
+        let id = result.id.clone();
+        let deferred = self.deferred.remove(&id);
+        let li = self.lambda_index()?;
+        let (account, region, endpoint) = lambda_mut(&mut self.services[li]).scope(&id)?;
+        let mut ctx = Ctx::new(account, region, endpoint.clone(), &mut self.env);
+        let Completion {
+            response,
+            sqs_deletes,
+        } = lambda_mut(&mut self.services[li]).complete(&mut ctx, result);
+        let outbox = std::mem::take(&mut ctx.outbox);
+        for delete in sqs_deletes {
+            self.delete_messages(&delete.queue_arn, &delete.receipt_handles, &endpoint);
+        }
+        self.route(outbox, &endpoint);
+        self.pump(&endpoint);
+        let d = deferred?;
+        let service = &self.services[d.service];
+        let model = service.model();
+        let op = model.operations.get(&d.operation)?;
+        let mut res = match response? {
+            Ok(output) => serialize_output(model, d.protocol, op, &output, &d.request_id),
+            Err(error) => serialize_error(model, d.protocol, Some(op), &error, &d.request_id),
+        };
+        stamp(&mut res, d.protocol, d.request_id);
+        Some(res)
+    }
+
+    fn lambda_index(&self) -> Option<usize> {
+        self.services
+            .iter()
+            .position(|s| s.signing_name() == "lambda")
+    }
+
+    fn service_index(&self, model: &str) -> Option<usize> {
+        self.services.iter().position(|s| s.model().name == model)
+    }
+
+    /// Polls the enabled event source mappings and hands each new batch to
+    /// its function.
+    fn pump(&mut self, endpoint: &str) {
+        let Some(li) = self.lambda_index() else {
+            return;
+        };
+        let polls = lambda_mut(&mut self.services[li]).polls(self.tick);
+        for poll in polls {
+            let Some(si) = self.service_index(poll.source_model()) else {
+                continue;
+            };
+            let mut ctx = Ctx::new(
+                poll.account.clone(),
+                poll.region.clone(),
+                endpoint,
+                &mut self.env,
+            );
+            let batch = poll.fetch(self.services[si].as_mut(), &mut ctx);
+            let deletes = lambda_mut(&mut self.services[li]).dispatch(&mut ctx, poll, batch);
+            let outbox = std::mem::take(&mut ctx.outbox);
+            for delete in deletes {
+                self.delete_messages(&delete.queue_arn, &delete.receipt_handles, endpoint);
+            }
+            self.route(outbox, endpoint);
+        }
+    }
+
+    fn delete_messages(&mut self, queue_arn: &str, receipt_handles: &[String], endpoint: &str) {
+        let (Some(arn), Some(si)) = (Arn::parse(queue_arn), self.service_index("sqs")) else {
+            return;
+        };
+        let mut ctx = Ctx::new(arn.account, arn.region, endpoint, &mut self.env);
+        for chunk in receipt_handles.chunks(10) {
+            let entries: Vec<Value> = chunk
+                .iter()
+                .enumerate()
+                .map(|(i, h)| serde_json::json!({"Id": i.to_string(), "ReceiptHandle": h}))
+                .collect();
+            let input = serde_json::json!({
+                "QueueUrl": format!("{endpoint}/{}/{}", arn.account, arn.resource),
+                "Entries": entries,
+            });
+            let _ = self.services[si].call(&mut ctx, "DeleteMessageBatch", input);
+        }
     }
 
     /// Routes deliveries to the services owning the target ARNs, following the
@@ -353,6 +478,7 @@ fn serialize_output(
                 status: r.status,
                 headers: r.headers,
                 body: r.body,
+                awaiting: None,
             }
         }
     }
@@ -470,6 +596,7 @@ fn serialize_error(
                 status: r.status,
                 headers: r.headers,
                 body: r.body,
+                awaiting: None,
             }
         }
     }
@@ -489,5 +616,20 @@ fn query_error_header(model: &ServiceModel, res: &mut Response, query_code: &str
             "x-amzn-query-error".to_string(),
             format!("{query_code};{fault}"),
         ));
+    }
+}
+
+fn lambda_mut(service: &mut Box<dyn Service>) -> &mut Lambda {
+    (service.as_mut() as &mut dyn Any)
+        .downcast_mut::<Lambda>()
+        .expect("the lambda service is Lambda")
+}
+
+fn stamp(res: &mut Response, protocol: &str, request_id: String) {
+    res.headers
+        .push(("x-amzn-requestid".to_string(), request_id.clone()));
+    if protocol == "rest-xml" {
+        res.headers
+            .push(("x-amz-request-id".to_string(), request_id));
     }
 }

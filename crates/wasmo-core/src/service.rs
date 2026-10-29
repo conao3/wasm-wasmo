@@ -1,3 +1,4 @@
+use std::any::Any;
 use std::collections::HashMap;
 
 use serde::Deserialize;
@@ -131,6 +132,8 @@ pub struct Ctx<'a> {
     pub security_token: Option<String>,
     pub env: &'a mut dyn Env,
     pub outbox: Vec<Delivery>,
+    /// Set by an operation whose response waits for a Lambda invocation.
+    pub awaiting: Option<String>,
 }
 
 impl<'a> Ctx<'a> {
@@ -147,6 +150,7 @@ impl<'a> Ctx<'a> {
             security_token: None,
             env,
             outbox: Vec::new(),
+            awaiting: None,
         }
     }
 
@@ -187,7 +191,7 @@ impl<'a> Ctx<'a> {
 
 pub type OpResult = Result<Value, AwsError>;
 
-pub trait Service {
+pub trait Service: Any {
     /// Lower-case SigV4 signing name (`sqs`, `dynamodb`, ...).
     fn signing_name(&self) -> &'static str;
     fn model(&self) -> &'static ServiceModel;

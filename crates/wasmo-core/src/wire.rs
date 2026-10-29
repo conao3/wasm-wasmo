@@ -49,16 +49,25 @@ impl Request {
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct ResponseMeta<'a> {
-    pub status: u16,
-    pub headers: &'a [(String, String)],
+#[serde(untagged)]
+pub enum ResponseMeta<'a> {
+    Ready {
+        status: u16,
+        headers: &'a [(String, String)],
+    },
+    Awaiting {
+        #[serde(rename = "await")]
+        invocation: &'a str,
+    },
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Response {
     pub status: u16,
     pub headers: Vec<(String, String)>,
     pub body: Vec<u8>,
+    /// Invocation whose completion produces the real response.
+    pub awaiting: Option<String>,
 }
 
 impl Response {
@@ -67,6 +76,7 @@ impl Response {
             status,
             headers: vec![("content-type".to_string(), content_type.to_string())],
             body,
+            awaiting: None,
         }
     }
 
@@ -74,10 +84,20 @@ impl Response {
         Self::new(status, "text/plain", body.into_bytes())
     }
 
+    pub fn awaiting(invocation: String) -> Self {
+        Self {
+            awaiting: Some(invocation),
+            ..Self::default()
+        }
+    }
+
     pub fn encode_frame(&self) -> Vec<u8> {
-        let meta = serde_json::to_vec(&ResponseMeta {
-            status: self.status,
-            headers: &self.headers,
+        let meta = serde_json::to_vec(&match &self.awaiting {
+            Some(invocation) => ResponseMeta::Awaiting { invocation },
+            None => ResponseMeta::Ready {
+                status: self.status,
+                headers: &self.headers,
+            },
         })
         .expect("response meta serializes");
         let mut out = Vec::with_capacity(4 + meta.len() + self.body.len());
