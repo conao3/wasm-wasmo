@@ -62,6 +62,18 @@ module Wasmo
           caller.export("memory").to_memory.write(ptr & 0xffff_ffff, SecureRandom.bytes(len & 0xffff_ffff))
           nil
         end
+        define_invoke(linker)
+      end
+
+      def define_invoke(linker)
+        linker.func_new("wasmo", "invoke", %i[i32 i32 i32 i32],
+                        []) do |caller, meta_ptr, meta_len, payload_ptr, payload_len|
+          pending = Thread.current[:wasmo_pending] or raise Error, "wasmo: invoke outside a request"
+          memory = caller.export("memory").to_memory
+          pending << [memory.read(meta_ptr & 0xffff_ffff, meta_len),
+                      memory.read(payload_ptr & 0xffff_ffff, payload_len)]
+          nil
+        end
         linker
       end
     end
@@ -77,12 +89,20 @@ module Wasmo
       @alloc = instance.export("wasmo_alloc").to_func
       @free = instance.export("wasmo_free").to_func
       @handle = instance.export("wasmo_handle").to_func
+      @complete = instance.export("wasmo_complete").to_func
     end
 
-    def roundtrip(meta, body)
-      frame = @lock.synchronize { call(meta, body) }
-      meta_len = frame.unpack1("N")
-      [JSON.parse(frame.byteslice(4, meta_len)), frame.byteslice((4 + meta_len)..)]
+    # Sends a request and runs the Lambda invocations it starts outside the
+    # lock, answering each with wasmo_complete.
+    def roundtrip(meta, body, functions)
+      pending = []
+      frame = @lock.synchronize { call(@handle, meta, body, pending) }
+      until pending.empty?
+        result, payload = Function.run(functions, *pending.shift)
+        answer = @lock.synchronize { call(@complete, result, payload.b, pending) }
+        frame = answer if answer
+      end
+      decode(frame)
     end
 
     def closed?
@@ -98,15 +118,34 @@ module Wasmo
 
     private
 
-    def call(meta, body)
+    def decode(frame)
+      meta_len = frame.unpack1("N")
+      res = JSON.parse(frame.byteslice(4, meta_len))
+      raise Error, "wasmo: invocation #{res['await']} was never answered" if res.key?("await")
+
+      [res, frame.byteslice((4 + meta_len)..)]
+    end
+
+    def call(func, meta, body, pending)
       raise ClosedError, "wasmo: mock is closed" if @store.nil?
 
-      res = @handle.call(put(meta), meta.bytesize, put(body), body.bytesize) & 0xffff_ffff_ffff_ffff
+      res = with_pending(pending) do
+        func.call(put(meta), meta.bytesize, put(body), body.bytesize)
+      end & 0xffff_ffff_ffff_ffff
+      return nil if res.zero?
+
       ptr = res >> 32
       len = res & 0xffff_ffff
       frame = @memory.read(ptr, len)
       @free.call(ptr, len)
       frame
+    end
+
+    def with_pending(pending)
+      Thread.current[:wasmo_pending] = pending
+      yield
+    ensure
+      Thread.current[:wasmo_pending] = nil
     end
 
     def put(data)

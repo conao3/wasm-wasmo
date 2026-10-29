@@ -2,6 +2,7 @@
 
 require "aws-sdk-core"
 require_relative "wasmo/runtime"
+require_relative "wasmo/function"
 require_relative "wasmo/plugin"
 require_relative "wasmo/mock"
 

@@ -5,6 +5,17 @@ module Wasmo
   class Mock
     def initialize
       @instance = Instance.new
+      @functions = {}
+    end
+
+    # Binds the block to every invocation of the Lambda function named +name+.
+    # It receives the decoded event and a FunctionContext and returns a
+    # JSON-serializable response; an exception becomes a function error. It
+    # runs outside the mock's lock, so it may call AWS through the same mock.
+    def register_function(name, &handler)
+      raise ArgumentError, "wasmo: register_function needs a block" unless handler
+
+      @functions[name] = handler
     end
 
     # Client options that send requests to this mock.
@@ -44,7 +55,7 @@ module Wasmo
       pairs = headers.map { |k, v| [k.to_s.downcase, v.to_s] }
       pairs << ["host", host(URI(url))] unless pairs.any? { |k, _| k == "host" }
       meta = JSON.generate({ method: method, url: url, headers: pairs })
-      res, data = @instance.roundtrip(meta, body.b)
+      res, data = @instance.roundtrip(meta, body.b, @functions)
       Response.new(res["status"], res["headers"], data)
     end
 
