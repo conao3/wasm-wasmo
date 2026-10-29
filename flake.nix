@@ -46,6 +46,8 @@
               pkgs.wabt
               pkgs.gnumake
               pkgs.jq
+              pkgs.jdk17
+              pkgs.maven
             ];
           };
         };
