@@ -83,14 +83,15 @@ pub fn match_uri(template: &str, path: &str) -> Option<HashMap<String, String>> 
                 if end <= pi {
                     return None;
                 }
-                labels.insert(
-                    greedy.to_string(),
-                    psegs[pi..end]
-                        .iter()
-                        .map(|s| uri_decode(s))
-                        .collect::<Vec<_>>()
-                        .join("/"),
-                );
+                let value = psegs[pi..end]
+                    .iter()
+                    .map(|s| uri_decode(s))
+                    .collect::<Vec<_>>()
+                    .join("/");
+                if value.is_empty() {
+                    return None;
+                }
+                labels.insert(greedy.to_string(), value);
                 pi = end;
             } else {
                 labels.insert(name.to_string(), uri_decode(psegs.get(pi)?));
@@ -103,7 +104,8 @@ pub fn match_uri(template: &str, path: &str) -> Option<HashMap<String, String>> 
             pi += 1;
         }
     }
-    (pi == psegs.len()).then_some(labels)
+    let trailing_slash = pi + 1 == psegs.len() && psegs[pi].is_empty();
+    (pi == psegs.len() || trailing_slash).then_some(labels)
 }
 
 pub fn parse_query(query: &str) -> Vec<(String, String)> {
@@ -670,6 +672,15 @@ mod tests {
         assert_eq!(l["foo"], "hello/escape");
         assert_eq!(l["baz"], "there/guy");
         assert!(match_uri("/a/{foo}", "/b/x").is_none());
+        assert!(match_uri("/{Bucket}/{Key+}", "/media/").is_none());
+        assert_eq!(
+            match_uri("/{Bucket}", "/media/").unwrap()["Bucket"],
+            "media"
+        );
+        assert_eq!(
+            match_uri("/{Bucket}/{Key+}", "/media/dir/").unwrap()["Key"],
+            "dir/"
+        );
     }
 
     #[test]
