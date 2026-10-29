@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>Wasmo</RootNamespace>
+    <PackageId>Wasmo</PackageId>
+    <Version>0.1.0</Version>
+    <Authors>conao3</Authors>
+    <Description>A stateful in-process AWS mock for the AWS SDK for .NET, powered by a single WebAssembly module.</Description>
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/conao3/wasm-wasmo</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/conao3/wasm-wasmo</RepositoryUrl>
+    <PackageTags>aws;mock;testing;wasm;s3;dynamodb;sqs</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="../../wasmo.wasm" LogicalName="wasmo.wasm" />
+    <None Include="README.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="AWSSDK.Core" Version="4.0.102.14" />
+    <PackageReference Include="Wasmtime" Version="48.0.2" />
+  </ItemGroup>
+</Project>

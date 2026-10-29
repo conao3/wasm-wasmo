@@ -3,3 +3,7 @@
 /go/wasmo.wasm
 /jvm/wasmo.wasm
 /jvm/target/
+/dotnet/wasmo.wasm
+/dotnet/*/*/bin/
+/dotnet/*/*/obj/
+/dotnet/TestResults/

@@ -1,0 +1,36 @@
+
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{C3174038-5F94-4FD1-8F72-0B1B3D7188FF}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Wasmo", "src\Wasmo\Wasmo.csproj", "{B77C86C3-B396-432E-8DF3-34C9ECDE8C18}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "test", "test", "{A48F5CCD-53FC-48FC-9C82-49D8E054BC3C}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Wasmo.Tests", "test\Wasmo.Tests\Wasmo.Tests.csproj", "{DCE168C8-969F-4B73-8D12-46CB0EEE5094}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{B77C86C3-B396-432E-8DF3-34C9ECDE8C18}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B77C86C3-B396-432E-8DF3-34C9ECDE8C18}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B77C86C3-B396-432E-8DF3-34C9ECDE8C18}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B77C86C3-B396-432E-8DF3-34C9ECDE8C18}.Release|Any CPU.Build.0 = Release|Any CPU
+		{DCE168C8-969F-4B73-8D12-46CB0EEE5094}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{DCE168C8-969F-4B73-8D12-46CB0EEE5094}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{DCE168C8-969F-4B73-8D12-46CB0EEE5094}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{DCE168C8-969F-4B73-8D12-46CB0EEE5094}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{B77C86C3-B396-432E-8DF3-34C9ECDE8C18} = {C3174038-5F94-4FD1-8F72-0B1B3D7188FF}
+		{DCE168C8-969F-4B73-8D12-46CB0EEE5094} = {A48F5CCD-53FC-48FC-9C82-49D8E054BC3C}
+	EndGlobalSection
+EndGlobal
