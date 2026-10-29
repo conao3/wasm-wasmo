@@ -68,10 +68,10 @@ jobs:
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
+      - run: npm install -g npm@latest
       - run: npm publish "dist/js/conao3-wasmo-$VERSION.tgz" --access public --provenance
         env:
           VERSION: ${{ needs.build.outputs.version }}
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   pypi:
     needs: build

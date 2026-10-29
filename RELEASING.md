@@ -29,14 +29,15 @@ Do these once, before the first tag. Right before the first release, check that 
 
 ### npm (`@conao3/wasmo`)
 
-npm only offers trusted publishing for a package that already exists, so the first release uses a token.
+npm only accepts a trusted publisher for a package that already exists, so the name is created once by hand with a placeholder version, and every real version is published from GitHub Actions with OIDC.
 
-1. On npmjs.com, as `conao3`, enable 2FA. Create a granular access token with read and write access to packages and the "bypass 2FA" option, expiring in 7 days.
-2. Store it as the secret `NPM_TOKEN` in the `npm` environment.
-3. After `0.1.0` is on npm: package settings > Trusted Publisher > GitHub Actions, owner `conao3`, repository `wasm-wasmo`, workflow `release.yml`, environment `npm`, and allow `npm publish`. A new trusted publisher must complete its first publish within 2 days, so add it shortly before the next release.
-4. Delete the `NPM_TOKEN` secret, revoke the token, and set Publishing access to "Require two-factor authentication and disallow tokens".
+1. On npmjs.com, as `conao3`, enable 2FA.
+2. Publish the placeholder: in an empty directory, write a `package.json` with name `@conao3/wasmo`, version `0.0.0`, and a README that points to this repository, then run `npm login` and `npm publish --access public`.
+3. Register the trusted publisher (npm 11.15.0 or later): `npm trust github @conao3/wasmo --file release.yml --repo conao3/wasm-wasmo --env npm --allow-publish`. A new trusted publisher must complete its first publish within 2 days, so do this shortly before the first release.
+4. Package settings > Publishing access: "Require two-factor authentication and disallow tokens".
+5. After the first real version is on npm, remove the placeholder with `npm unpublish @conao3/wasmo@0.0.0` (allowed within 72 hours of its publication).
 
-The npm CLI tries OIDC first and uses `NODE_AUTH_TOKEN` only when OIDC is not accepted, so the workflow needs no change between the two phases.
+The `npm` job publishes with the OIDC token of the run and needs no secret. npm 11.5.1 or later is required, so the job installs the latest npm first.
 
 ### PyPI (`wasmo`)
 
