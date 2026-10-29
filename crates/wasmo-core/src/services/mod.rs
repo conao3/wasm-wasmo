@@ -2,6 +2,7 @@ use crate::service::Service;
 
 pub mod dynamodb;
 pub mod events;
+pub mod kms;
 mod pattern;
 pub mod s3;
 pub mod secretsmanager;
@@ -20,5 +21,6 @@ pub fn all() -> Vec<Box<dyn Service>> {
         Box::new(events::Events::default()),
         Box::new(secretsmanager::SecretsManager::default()),
         Box::new(ssm::Ssm::default()),
+        Box::new(kms::Kms::default()),
     ]
 }

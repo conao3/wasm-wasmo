@@ -18,6 +18,11 @@ md-5 = "0.11"
 sha2 = "0.11"
 sha1 = "0.11"
 crc = "3"
+aes-gcm = { version = "0.11", default-features = false, features = ["aes", "alloc"] }
+p256 = { version = "0.14", default-features = false, features = ["ecdsa", "ecdh", "pkcs8", "alloc"] }
+rsa = { version = "0.10.0-rc.19", default-features = false, features = ["encoding", "sha2"] }
+hmac = "0.13"
+rand_core = { version = "0.10", default-features = false }
 
 [profile.release]
 opt-level = "s"
