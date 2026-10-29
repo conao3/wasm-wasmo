@@ -1,8 +1,6 @@
 //! `json` (awsJson 1.0 / 1.1) protocol and the JSON document mapping shared
 //! with `rest-json`.
 
-use base64::Engine;
-use base64::engine::general_purpose::STANDARD;
 use serde_json::{Map, Value};
 
 use super::AwsError;
@@ -74,12 +72,6 @@ pub fn from_wire(reg: &Registry, v: &Value, shape: &Shape, member: Option<&Membe
                 .map_or(v.clone(), time::epoch_value),
             Value::Number(n) => n.as_f64().map_or(v.clone(), time::epoch_value),
             _ => v.clone(),
-        },
-        "blob" => match v.as_str() {
-            Some(s) => STANDARD.decode(s).map_or(v.clone(), |b| {
-                Value::String(String::from_utf8_lossy(&b).into_owned())
-            }),
-            None => v.clone(),
         },
         "float" | "double" => match v {
             Value::String(s) => parse_float(s).unwrap_or_else(|| v.clone()),
@@ -153,7 +145,6 @@ pub fn to_wire(reg: &Registry, v: &Value, shape: &Shape, member: Option<&MemberR
                 _ => time::epoch_value(epoch),
             }
         }
-        "blob" => Value::String(STANDARD.encode(v.as_str().map(str::as_bytes).unwrap_or_default())),
         _ => v.clone(),
     }
 }

@@ -14,3 +14,4 @@ base64.workspace = true
 quick-xml.workspace = true
 
 [dev-dependencies]
+base64.workspace = true

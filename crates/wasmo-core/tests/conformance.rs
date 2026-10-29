@@ -112,6 +112,21 @@ fn form_body(case: &Value) -> Vec<(String, String)> {
 fn run_case(direction: &str, meta: &Metadata, reg: &Registry, case: &Value) -> Result<(), String> {
     let op: Operation =
         serde_json::from_value(case["given"].clone()).map_err(|e| format!("given: {e}"))?;
+    let case = &if direction == "input" {
+        with_encoded_blobs(
+            reg,
+            case,
+            "params",
+            op.input.as_ref().map(|i| i.shape.as_str()),
+        )
+    } else {
+        with_encoded_blobs(
+            reg,
+            case,
+            "result",
+            op.output.as_ref().map(|o| o.shape.as_str()),
+        )
+    };
     let dialect = match meta.protocol.as_str() {
         "query" => Dialect::Query,
         "ec2" => Dialect::Ec2,
@@ -462,4 +477,47 @@ fn run_rest_case(
         .unwrap_or(Value::Object(Default::default()));
     let res = rest::serialize_output(reg, op, &result, format);
     compare_rest_response(&res, case, format)
+}
+
+/// botocore writes blob parameters as plain strings; wasmo carries blobs as
+/// base64 text. Re-encode the blob positions of `v` for `shape`.
+fn encode_blobs(reg: &Registry, v: &Value, shape: &wasmo_core::model::Shape) -> Value {
+    use base64::Engine;
+    match (shape.kind.as_str(), v) {
+        ("blob", Value::String(s)) => {
+            Value::String(base64::engine::general_purpose::STANDARD.encode(s.as_bytes()))
+        }
+        ("structure", Value::Object(o)) => Value::Object(
+            o.iter()
+                .map(|(k, x)| {
+                    let x = match shape.members.get(k) {
+                        Some(m) => encode_blobs(reg, x, reg.member_shape(m)),
+                        None => x.clone(),
+                    };
+                    (k.clone(), x)
+                })
+                .collect(),
+        ),
+        ("list", Value::Array(a)) => {
+            let item = reg.member_shape(shape.member.as_deref().unwrap());
+            Value::Array(a.iter().map(|x| encode_blobs(reg, x, item)).collect())
+        }
+        ("map", Value::Object(o)) => {
+            let value = reg.member_shape(shape.value.as_deref().unwrap());
+            Value::Object(
+                o.iter()
+                    .map(|(k, x)| (k.clone(), encode_blobs(reg, x, value)))
+                    .collect(),
+            )
+        }
+        _ => v.clone(),
+    }
+}
+
+fn with_encoded_blobs(reg: &Registry, case: &Value, key: &str, shape: Option<&str>) -> Value {
+    let mut case = case.clone();
+    if let (Some(shape), Some(v)) = (shape, case.get(key).cloned()) {
+        case[key] = encode_blobs(reg, &v, reg.shape(shape));
+    }
+    case
 }

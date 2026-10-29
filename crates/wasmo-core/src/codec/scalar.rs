@@ -38,7 +38,8 @@ pub fn parse_text(
             timestamp_format(member, shape, default_ts),
         )?),
         "blob" => {
-            Value::String(String::from_utf8_lossy(&STANDARD.decode(text.trim()).ok()?).into_owned())
+            STANDARD.decode(text.trim()).ok()?;
+            Value::String(text.trim().to_string())
         }
         _ => Value::String(text.to_string()),
     })
@@ -67,7 +68,7 @@ pub fn format_text(
                 _ => time::format_iso8601(epoch),
             }
         }
-        "blob" => STANDARD.encode(value.as_str().map(str::as_bytes).unwrap_or_default()),
+        "blob" => value.as_str().unwrap_or_default().to_string(),
         _ => match value {
             Value::String(s) => s.clone(),
             Value::Bool(b) => b.to_string(),

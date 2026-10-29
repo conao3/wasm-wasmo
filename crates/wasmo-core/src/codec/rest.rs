@@ -307,7 +307,12 @@ fn parse_body(
         let member = &shape.members[payload];
         let ms = reg.member_shape(member);
         match ms.kind.as_str() {
-            "blob" | "string" => {
+            "blob" => {
+                if !body.is_empty() {
+                    out.insert(payload.clone(), Value::String(STANDARD.encode(body)));
+                }
+            }
+            "string" => {
                 if !body.is_empty() {
                     out.insert(
                         payload.clone(),
@@ -466,7 +471,9 @@ fn serialize_body(
         };
         return match ms.kind.as_str() {
             "blob" => (
-                v.as_str().unwrap_or_default().as_bytes().to_vec(),
+                STANDARD
+                    .decode(v.as_str().unwrap_or_default())
+                    .unwrap_or_default(),
                 Some("application/octet-stream".to_string()),
             ),
             "string" => (
