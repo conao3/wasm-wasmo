@@ -1,0 +1,82 @@
+input/query.json:SDKAppliedContentEncoding_awsQuery	request compression: the fixture carries no request body
+input/query.json:SDKAppendsGzipAndIgnoresHttpProvidedEncoding_awsQuery	request compression: the fixture carries no request body
+input/query.json:QueryProtocolIdempotencyTokenAutoFill	client fills the idempotency token
+input/query.json:QueryEmptyQueryMaps	client omits null and empty values when serializing
+input/ec2.json:SDKAppliedContentEncoding_ec2Query	request compression: the fixture carries no request body
+input/ec2.json:SDKAppendsGzipAndIgnoresHttpProvidedEncoding_ec2Query	request compression: the fixture carries no request body
+input/ec2.json:Ec2ProtocolIdempotencyTokenAutoFill	client fills the idempotency token
+input/ec2.json:Ec2EmptyQueryLists	client omits null and empty values when serializing
+input/json.json:AwsJson11StructuresDontSerializeNullValues	client omits null and empty values when serializing
+input/json.json:SDKAppliedContentEncoding_awsJson1_1	request compression: the fixture carries no request body
+input/json.json:SDKAppendsGzipAndIgnoresHttpProvidedEncoding_awsJson1_1	request compression: the fixture carries no request body
+input/json_1_0.json:SDKAppliedContentEncoding_awsJson1_0	request compression: the fixture carries no request body
+input/json_1_0.json:SDKAppendsGzipAndIgnoresHttpProvidedEncoding_awsJson1_0	request compression: the fixture carries no request body
+input/rest-json.json:RestJsonHttpPrefixHeadersAreNotPresent	client omits null and empty values when serializing
+input/rest-json.json:RestJsonNullAndEmptyHeaders	client omits null and empty values when serializing
+input/rest-json.json:RestJsonOmitsNullQuery	client omits null and empty values when serializing
+input/rest-json.json:RestJsonOmitsEmptyListQueryValues	client omits null and empty values when serializing
+input/rest-json.json:SDKAppliedContentEncoding_restJson1	request compression: the fixture carries no request body
+input/rest-json.json:SDKAppendedGzipAfterProvidedEncoding_restJson1	request compression: the fixture carries no request body
+input/rest-json.json:RestJsonQueryIdempotencyTokenAutoFill	client fills the idempotency token
+input/rest-json.json:RestJsonQueryParamsStringListMap	server puts every query parameter in the httpQueryParams map
+input/rest-json.json:RestJsonQueryPrecedence	server puts every query parameter in the httpQueryParams map
+input/rest-json.json:RestJsonDoesntSerializeNullStructureValues	client omits null and empty values when serializing
+input/rest-xml.json:AllQueryStringTypes	server puts every query parameter in the httpQueryParams map
+input/rest-xml.json:RestXmlQueryStringEscaping	server puts every query parameter in the httpQueryParams map
+input/rest-xml.json:RestXmlSupportsNaNFloatQueryValues	server puts every query parameter in the httpQueryParams map
+input/rest-xml.json:RestXmlSupportsInfinityFloatQueryValues	server puts every query parameter in the httpQueryParams map
+input/rest-xml.json:RestXmlSupportsNegativeInfinityFloatQueryValues	server puts every query parameter in the httpQueryParams map
+input/rest-xml.json:RestXmlZeroAndFalseQueryValues	server puts every query parameter in the httpQueryParams map
+input/rest-xml.json:HttpPrefixHeadersAreNotPresent	client omits null and empty values when serializing
+input/rest-xml.json:NullAndEmptyHeaders	client omits null and empty values when serializing
+input/rest-xml.json:RestXmlOmitsNullQuery	client omits null and empty values when serializing
+input/rest-xml.json:SDKAppliedContentEncoding_restXml	request compression: the fixture carries no request body
+input/rest-xml.json:SDKAppendedGzipAfterProvidedEncoding_restXml	request compression: the fixture carries no request body
+input/rest-xml.json:QueryIdempotencyTokenAutoFill	client fills the idempotency token
+input/rest-xml.json:RestXmlQueryParamsStringListMap	server puts every query parameter in the httpQueryParams map
+input/rest-xml.json:RestXmlQueryPrecedence	server puts every query parameter in the httpQueryParams map
+output/query.json:AwsQueryDateTimeWithNegativeOffset	client parses timestamp offsets; the server always writes UTC
+output/query.json:AwsQueryDateTimeWithPositiveOffset	client parses timestamp offsets; the server always writes UTC
+output/ec2.json:Ec2QueryDateTimeWithNegativeOffset	client parses timestamp offsets; the server always writes UTC
+output/ec2.json:Ec2QueryDateTimeWithPositiveOffset	client parses timestamp offsets; the server always writes UTC
+output/ec2.json:Ec2ComplexError	client accepts alternate error encodings; the server writes one
+output/json.json:AwsJson11DateTimeWithNegativeOffset	client parses timestamp offsets; the server always writes UTC
+output/json.json:AwsJson11DateTimeWithPositiveOffset	client parses timestamp offsets; the server always writes UTC
+output/json.json:handles_unexpected_json_output	client ignores or tolerates extra response content
+output/json.json:AwsJson11FooErrorUsingCode	client accepts alternate error encodings; the server writes one
+output/json.json:AwsJson11FooErrorUsingCodeAndNamespace	client accepts alternate error encodings; the server writes one
+output/json.json:AwsJson11FooErrorUsingCodeUriAndNamespace	client accepts alternate error encodings; the server writes one
+output/json.json:AwsJson11FooErrorWithDunderTypeAndNamespace	client accepts alternate error encodings; the server writes one
+output/json.json:AwsJson11FooErrorWithDunderTypeUriAndNamespace	client accepts alternate error encodings; the server writes one
+output/json.json:AwsJson11DeserializeIgnoreType	client ignores or tolerates extra response content
+output/json.json:AwsJson11StructuresDontDeserializeNullValues	client omits null and empty values when serializing
+output/json_1_0.json:AwsJson10InvalidGreetingError	client accepts alternate error encodings; the server writes one
+output/json_1_0.json:AwsJson10FooErrorUsingCode	client accepts alternate error encodings; the server writes one
+output/json_1_0.json:AwsJson10FooErrorUsingCodeAndNamespace	client accepts alternate error encodings; the server writes one
+output/json_1_0.json:AwsJson10FooErrorUsingCodeUriAndNamespace	client accepts alternate error encodings; the server writes one
+output/json_1_0.json:AwsJson10FooErrorWithDunderTypeAndNamespace	client accepts alternate error encodings; the server writes one
+output/json_1_0.json:AwsJson10FooErrorWithDunderTypeUriAndNamespace	client accepts alternate error encodings; the server writes one
+output/json_1_0.json:AwsJson10ComplexError	client accepts alternate error encodings; the server writes one
+output/json_1_0.json:AwsJson10EmptyComplexError	client accepts alternate error encodings; the server writes one
+output/json_1_0.json:AwsJson10DeserializeIgnoreType	client ignores or tolerates extra response content
+output/json_1_0.json:AwsJson10DeserializeAllowNulls	client ignores or tolerates extra response content
+output/json_1_0.json:AwsJson10HandlesUnexpectedJsonOutput	client ignores or tolerates extra response content
+output/rest-json.json:RestJsonDateTimeWithNegativeOffset	client parses timestamp offsets; the server always writes UTC
+output/rest-json.json:RestJsonDateTimeWithPositiveOffset	client parses timestamp offsets; the server always writes UTC
+output/rest-json.json:RestJsonFooErrorUsingXAmznErrorTypeWithUri	client accepts alternate error encodings; the server writes one
+output/rest-json.json:RestJsonFooErrorUsingXAmznErrorTypeWithUriAndNamespace	client accepts alternate error encodings; the server writes one
+output/rest-json.json:RestJsonFooErrorUsingCode	client accepts alternate error encodings; the server writes one
+output/rest-json.json:RestJsonFooErrorUsingCodeAndNamespace	client accepts alternate error encodings; the server writes one
+output/rest-json.json:RestJsonFooErrorUsingCodeUriAndNamespace	client accepts alternate error encodings; the server writes one
+output/rest-json.json:RestJsonFooErrorWithDunderType	client accepts alternate error encodings; the server writes one
+output/rest-json.json:RestJsonFooErrorWithDunderTypeAndNamespace	client accepts alternate error encodings; the server writes one
+output/rest-json.json:RestJsonFooErrorWithDunderTypeUriAndNamespace	client accepts alternate error encodings; the server writes one
+output/rest-json.json:RestJsonDeserializesDenseSetMapAndSkipsNull	client ignores or tolerates extra response content
+output/rest-json.json:RestJsonDeserializeIgnoreType	client ignores or tolerates extra response content
+output/rest-json.json:RestJsonDoesntDeserializeNullStructureValues	client omits null and empty values when serializing
+output/rest-xml.json:RestXmlDateTimeWithNegativeOffset	client parses timestamp offsets; the server always writes UTC
+output/rest-xml.json:RestXmlDateTimeWithPositiveOffset	client parses timestamp offsets; the server always writes UTC
+output/rest-xml.json:InvalidGreetingError	client accepts alternate error encodings; the server writes one
+output/rest-xml.json:ComplexError	client accepts alternate error encodings; the server writes one
+output/rest-xml.json:IgnoreQueryParamsInResponse	client ignores or tolerates extra response content
+output/rest-xml.json:XmlNamespaces	client ignores xmlns on nested structures

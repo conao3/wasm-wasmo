@@ -2,7 +2,9 @@
 //! `input/*` cases parse the serialized request and compare against
 //! `params`; `output/*` cases serialize `result` (or the error) and compare
 //! against the expected response. Cases listed in `conformance-passing.txt`
-//! must keep passing; run with `UPDATE_CONFORMANCE=1` to rewrite the list.
+//! must keep passing; cases listed in `conformance-gaps.txt` exercise client
+//! behaviour a server cannot observe. Every case must be in one of the two
+//! lists. Run with `UPDATE_CONFORMANCE=1` to rewrite the passing list.
 
 use std::collections::BTreeSet;
 use std::fs;
@@ -12,6 +14,7 @@ use serde_json::Value;
 use wasmo_core::codec::AwsError;
 use wasmo_core::codec::json;
 use wasmo_core::codec::query::{self, Dialect};
+use wasmo_core::codec::rest::{self, BodyFormat, HttpRequest, HttpResponse};
 use wasmo_core::model::{Metadata, Operation, Registry};
 use wasmo_core::xml::{self, Element};
 
@@ -38,6 +41,16 @@ fn passing_file() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/conformance-passing.txt")
 }
 
+fn gap_ids() -> BTreeSet<String> {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/conformance-gaps.txt");
+    fs::read_to_string(path)
+        .unwrap()
+        .lines()
+        .filter_map(|l| l.split('\t').next())
+        .map(str::to_string)
+        .collect()
+}
+
 fn normalize(v: &Value) -> Value {
     match v {
         Value::Number(n) => match n.as_f64() {
@@ -62,7 +75,11 @@ fn canonical(el: &Element) -> Element {
     Element {
         name: el.name.clone(),
         attrs,
-        text: el.text.trim().to_string(),
+        text: if el.children.is_empty() {
+            el.text.trim().to_string()
+        } else {
+            String::new()
+        },
         children: el
             .children
             .iter()
@@ -99,6 +116,8 @@ fn run_case(direction: &str, meta: &Metadata, reg: &Registry, case: &Value) -> R
         "query" => Dialect::Query,
         "ec2" => Dialect::Ec2,
         "json" => return run_json_case(direction, reg, &op, case),
+        "rest-json" => return run_rest_case(direction, reg, meta, &op, case, BodyFormat::Json),
+        "rest-xml" => return run_rest_case(direction, reg, meta, &op, case, BodyFormat::Xml),
         other => return Err(format!("protocol {other} not implemented")),
     };
     if direction == "input" {
@@ -209,10 +228,14 @@ fn botocore_protocol_conformance() {
         .lines()
         .map(str::to_string)
         .collect();
+    let gaps = gap_ids();
     let regressions: Vec<_> = failures
         .iter()
-        .filter(|(id, _)| expected.contains(id))
+        .filter(|(id, _)| expected.contains(id) || !gaps.contains(id))
         .collect();
+    for id in passing.intersection(&gaps) {
+        println!("gap now passes, remove it from conformance-gaps.txt: {id}");
+    }
     let newly = passing.difference(&expected).count();
     if newly > 0 {
         println!("{newly} newly passing cases; rerun with UPDATE_CONFORMANCE=1 to record them");
@@ -224,7 +247,7 @@ fn botocore_protocol_conformance() {
     }
     assert!(
         regressions.is_empty(),
-        "regressions:\n{}",
+        "failing cases that are neither recorded gaps nor allowed to fail:\n{}",
         regressions
             .iter()
             .map(|(id, e)| format!("{id}: {e}"))
@@ -322,4 +345,121 @@ fn run_json_case(
     let shape = op.output.as_ref().map(|o| reg.shape(&o.shape));
     let body: Value = serde_json::from_slice(&json::serialize_output(reg, &result, shape)).unwrap();
     compare_json(&body, expected_body)
+}
+
+fn compare_headers(actual: &HttpResponse, case: &Value) -> Result<(), String> {
+    for (k, v) in case["response"]["headers"]
+        .as_object()
+        .into_iter()
+        .flatten()
+    {
+        let expected = v.as_str().unwrap_or_default();
+        let got = actual
+            .headers
+            .iter()
+            .find(|(n, _)| n.eq_ignore_ascii_case(k))
+            .map(|(_, v)| v.as_str());
+        if got != Some(expected) {
+            return Err(format!("header {k}: actual {got:?}, expected {expected:?}"));
+        }
+    }
+    Ok(())
+}
+
+fn compare_rest_response(
+    actual: &HttpResponse,
+    case: &Value,
+    format: BodyFormat,
+) -> Result<(), String> {
+    if let Some(status) = case["response"]["status_code"].as_u64()
+        && u64::from(actual.status) != status
+    {
+        return Err(format!(
+            "status: actual {}, expected {status}",
+            actual.status
+        ));
+    }
+    compare_headers(actual, case)?;
+    let expected_body = case["response"]["body"].as_str().unwrap_or_default();
+    if expected_body.trim().is_empty() {
+        return if actual.body.iter().all(u8::is_ascii_whitespace) || actual.body == b"{}" {
+            Ok(())
+        } else {
+            Err(format!(
+                "expected empty body, got {}",
+                String::from_utf8_lossy(&actual.body)
+            ))
+        };
+    }
+    let ct = actual
+        .headers
+        .iter()
+        .find(|(k, _)| k.eq_ignore_ascii_case("content-type"))
+        .map(|(_, v)| v.as_str());
+    match (format, ct) {
+        (_, Some("application/octet-stream" | "text/plain")) => {
+            if actual.body == expected_body.as_bytes() {
+                Ok(())
+            } else {
+                Err(format!(
+                    "raw body mismatch: {:?}",
+                    String::from_utf8_lossy(&actual.body)
+                ))
+            }
+        }
+        (BodyFormat::Json, _) => {
+            let v: Value = serde_json::from_slice(&actual.body)
+                .map_err(|e| format!("actual body is not json: {e}"))?;
+            compare_json(&v, expected_body)
+        }
+        (BodyFormat::Xml, _) => compare_xml(
+            &xml::parse(&actual.body).map_err(|e| format!("actual body is not xml: {e}"))?,
+            expected_body,
+        ),
+    }
+}
+
+fn run_rest_case(
+    direction: &str,
+    reg: &Registry,
+    meta: &Metadata,
+    op: &Operation,
+    case: &Value,
+    format: BodyFormat,
+) -> Result<(), String> {
+    let _ = meta;
+    if direction == "input" {
+        let s = &case["serialized"];
+        let uri = s["uri"].as_str().unwrap_or("/");
+        let (path, query) = uri.split_once('?').unwrap_or((uri, ""));
+        let headers: Vec<(String, String)> = s["headers"]
+            .as_object()
+            .into_iter()
+            .flatten()
+            .map(|(k, v)| (k.clone(), v.as_str().unwrap_or_default().to_string()))
+            .collect();
+        let body = s["body"].as_str().unwrap_or_default();
+        let req = HttpRequest {
+            path,
+            query,
+            headers: &headers,
+            body: body.as_bytes(),
+        };
+        let actual = rest::parse_input(reg, op, &req, format)
+            .map_err(|e| format!("{}: {}", e.code, e.message))?;
+        return compare_params(&actual, case);
+    }
+    if let Some((error, shape_name)) = case_error(reg, op, case, |name| {
+        query::error_code(name, reg.shape(name))
+    }) {
+        let shape = shape_name.as_deref().map(|n| reg.shape(n));
+        let res = rest::serialize_error(reg, &error, shape, format, "request-id");
+        return compare_rest_response(&res, case, format);
+    }
+    let result = case
+        .get("result")
+        .cloned()
+        .unwrap_or(Value::Object(Default::default()));
+    let res = rest::serialize_output(reg, op, &result, format);
+    compare_rest_response(&res, case, format)
 }

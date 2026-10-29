@@ -1,5 +1,6 @@
 pub mod json;
 pub mod query;
+pub mod rest;
 pub mod scalar;
 pub mod time;
 pub mod xml_value;
