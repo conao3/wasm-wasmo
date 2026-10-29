@@ -381,10 +381,10 @@ pub fn account_op(
             name,
         ));
     }
-    if accounts
-        .get(&ctx.account)
-        .is_some_and(|b| b.contains_key(&name))
-    {
+    if let Some(existing) = accounts.get(&ctx.account).and_then(|b| b.get(&name)) {
+        if existing.region == "us-east-1" && ctx.region == "us-east-1" {
+            return Ok(json!({ "Location": format!("/{name}") }));
+        }
         return Err(with(
             err(
                 409,

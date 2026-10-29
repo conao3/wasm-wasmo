@@ -101,8 +101,21 @@ func TestS3Buckets(t *testing.T) {
 	eachAddressing(t, func(t *testing.T, _ *wasmo.Mock, c *s3.Client) {
 		mustBucket(t, c, "alpha")
 		mustBucket(t, c, "beta")
-		if _, err := c.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String("alpha")}); apiCode(err) != "BucketAlreadyOwnedByYou" {
-			t.Fatalf("duplicate create: %v", err)
+		if _, err := c.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String("alpha")}); err != nil {
+			t.Fatalf("recreating an owned bucket in us-east-1: %v", err)
+		}
+		west := func(o *s3.Options) { o.Region = "eu-west-1" }
+		if _, err := c.CreateBucket(ctx, &s3.CreateBucketInput{
+			Bucket:                    aws.String("gamma"),
+			CreateBucketConfiguration: &types.CreateBucketConfiguration{LocationConstraint: types.BucketLocationConstraintEuWest1},
+		}, west); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := c.CreateBucket(ctx, &s3.CreateBucketInput{
+			Bucket:                    aws.String("gamma"),
+			CreateBucketConfiguration: &types.CreateBucketConfiguration{LocationConstraint: types.BucketLocationConstraintEuWest1},
+		}, west); apiCode(err) != "BucketAlreadyOwnedByYou" {
+			t.Fatalf("recreating an owned bucket outside us-east-1: %v", err)
 		}
 		if _, err := c.HeadBucket(ctx, &s3.HeadBucketInput{Bucket: aws.String("alpha")}); err != nil {
 			t.Fatal(err)
@@ -115,7 +128,7 @@ func TestS3Buckets(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(list.Buckets) != 2 || aws.ToString(list.Buckets[0].Name) != "alpha" {
+		if len(list.Buckets) != 3 || aws.ToString(list.Buckets[0].Name) != "alpha" {
 			t.Fatalf("buckets = %+v", list.Buckets)
 		}
 		loc, err := c.GetBucketLocation(ctx, &s3.GetBucketLocationInput{Bucket: aws.String("alpha")})
