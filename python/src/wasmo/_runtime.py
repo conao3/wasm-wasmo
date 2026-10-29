@@ -32,10 +32,18 @@ def _random_fill(caller: wasmtime.Caller, ptr: int, length: int) -> None:
     memory.write(caller, os.urandom(length & 0xFFFFFFFF), ptr & 0xFFFFFFFF)
 
 
+def _read(caller: wasmtime.Caller, ptr: int, length: int) -> bytes:
+    memory = caller["memory"]
+    assert isinstance(memory, wasmtime.Memory)
+    ptr, length = ptr & 0xFFFFFFFF, length & 0xFFFFFFFF
+    return bytes(memory.read(caller, ptr, ptr + length))
+
+
 class Instance:
     def __init__(self) -> None:
         engine, module = _module()
         self._store = wasmtime.Store(engine)
+        self._pending: list[tuple[bytes, bytes]] | None = None
         linker = wasmtime.Linker(engine)
         linker.define_func(
             "wasmo", "now_ms", wasmtime.FuncType([], [wasmtime.ValType.f64()]), _now_ms
@@ -47,11 +55,34 @@ class Instance:
             _random_fill,
             access_caller=True,
         )
+        i32 = wasmtime.ValType.i32()
+        linker.define_func(
+            "wasmo",
+            "invoke",
+            wasmtime.FuncType([i32, i32, i32, i32], []),
+            self._invoke,
+            access_caller=True,
+        )
         exports = linker.instantiate(self._store, module).exports(self._store)
         self._memory = exports["memory"]
         self._alloc = exports["wasmo_alloc"]
         self._free = exports["wasmo_free"]
         self._handle = exports["wasmo_handle"]
+        self._complete = exports["wasmo_complete"]
+
+    def _invoke(
+        self,
+        caller: wasmtime.Caller,
+        meta_ptr: int,
+        meta_len: int,
+        payload_ptr: int,
+        payload_len: int,
+    ) -> None:
+        if self._pending is None:
+            raise RuntimeError("wasmo: invoke outside a request")
+        self._pending.append(
+            (_read(caller, meta_ptr, meta_len), _read(caller, payload_ptr, payload_len))
+        )
 
     def _span(self, ptr: int, length: int) -> int:
         if ptr + length > self._memory.data_len(self._store):
@@ -64,10 +95,28 @@ class Instance:
             ctypes.memmove(self._span(ptr, len(data)), data, len(data))
         return ptr
 
-    def handle(self, meta: bytes, body: bytes) -> bytes:
+    def handle(self, meta: bytes, body: bytes, pending: list[tuple[bytes, bytes]]) -> bytes:
+        frame = self._call(self._handle, meta, body, pending)
+        assert frame is not None
+        return frame
+
+    def complete(
+        self, meta: bytes, payload: bytes, pending: list[tuple[bytes, bytes]]
+    ) -> bytes | None:
+        return self._call(self._complete, meta, payload, pending)
+
+    def _call(
+        self, fn: wasmtime.Func, meta: bytes, body: bytes, pending: list[tuple[bytes, bytes]]
+    ) -> bytes | None:
         meta_ptr = self._put(meta)
         body_ptr = self._put(body)
-        res = self._handle(self._store, meta_ptr, len(meta), body_ptr, len(body))
+        self._pending = pending
+        try:
+            res = fn(self._store, meta_ptr, len(meta), body_ptr, len(body))
+        finally:
+            self._pending = None
+        if res == 0:
+            return None
         ptr, length = (res >> 32) & 0xFFFFFFFF, res & 0xFFFFFFFF
         frame = ctypes.string_at(self._span(ptr, length), length)
         self._free(self._store, ptr, length)

@@ -17,6 +17,7 @@ import botocore.loaders
 import botocore.session
 from botocore.awsrequest import AWSPreparedRequest, AWSResponse
 
+from wasmo._function import Handler, run
 from wasmo._runtime import Instance
 
 ENDPOINT = "http://wasmo.local"
@@ -78,6 +79,17 @@ class Mock:
         self._lock = threading.Lock()
         self._instance: Instance | None = None
         self._closed = False
+        self._functions: dict[str, Handler] = {}
+
+    def register_function(self, name: str, handler: Handler) -> Handler:
+        """Bind ``handler(event, context)`` to every invocation of the Lambda function ``name``.
+
+        The handler gets the decoded event and returns a JSON-serializable response; an exception
+        becomes a function error. It runs outside the mock's lock, so it may call AWS through the
+        same mock.
+        """
+        self._functions[name] = handler
+        return handler
 
     def fetch(
         self,
@@ -92,14 +104,23 @@ class Mock:
         if not any(k == "host" for k, _ in pairs):
             pairs.append(("host", urlsplit(url).netloc))
         meta = json.dumps({"method": method, "url": url, "headers": pairs}).encode()
+        pending: list[tuple[bytes, bytes]] = []
         with self._lock:
             if self._closed:
                 raise RuntimeError("wasmo: mock is closed")
             if self._instance is None:
                 self._instance = Instance()
-            frame = self._instance.handle(meta, body)
+            instance = self._instance
+            frame = instance.handle(meta, body, pending)
+        while pending:
+            result, payload = run(self._functions, *pending.pop(0))
+            with self._lock:
+                answer = instance.complete(result, payload, pending)
+            frame = answer or frame
         (meta_len,) = struct.unpack_from(">I", frame)
         res = json.loads(frame[4 : 4 + meta_len])
+        if "await" in res:
+            raise RuntimeError(f"wasmo: invocation {res['await']} was never answered")
         out: dict[str, str] = {}
         for name, value in res["headers"]:
             out[name] = f"{out[name]}, {value}" if name in out else value
