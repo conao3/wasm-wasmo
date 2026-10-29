@@ -2,7 +2,7 @@
 
 All packages share one version, set in `VERSION`. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions follow [Semantic Versioning](https://semver.org/).
 
-## [0.1.0]
+## [0.1.0] - 2026-10-29
 
 First release. One WebAssembly module (`wasmo.wasm`, built from Rust for `wasm32-unknown-unknown`) is embedded in an adapter for each language's AWS SDK and answers its requests inside the test process.
 
@@ -17,7 +17,10 @@ First release. One WebAssembly module (`wasmo.wasm`, built from Rust for `wasm32
 
 ### Services
 
-- STS, SQS, DynamoDB, S3, SNS, EventBridge, Secrets Manager, SSM Parameter Store, KMS, IAM, CloudWatch, CloudWatch Logs, Kinesis, Data Firehose, and DynamoDB Streams.
+- STS, SQS, DynamoDB, S3, SNS, EventBridge, Secrets Manager, SSM Parameter Store, KMS, IAM, CloudWatch, CloudWatch Logs, Kinesis, Data Firehose, DynamoDB Streams, Lambda, Step Functions, and API Gateway (REST APIs and HTTP APIs).
+- Lambda functions are written in the test's own language and registered with the adapter (`RegisterFunction`, `registerFunction`, `register_function`, and so on). Invoke, event source mappings from SQS, Kinesis, and DynamoDB Streams, and deliveries from SNS, EventBridge, S3, and CloudWatch Logs call back into the host.
+- Step Functions runs Amazon States Language state machines with Retry and Catch, inline and distributed Map, intrinsic functions, and service integrations for Lambda, SQS, SNS, DynamoDB, EventBridge, Step Functions, and `aws-sdk:*`. Wait and Retry advance a logical clock instead of sleeping.
+- API Gateway answers `execute-api` requests with Lambda proxy, MOCK, and AWS integrations, mapping templates, Lambda and JWT authorizers, API keys, and CORS.
 - Cross-service delivery inside one mock: SNS to SQS, EventBridge to SQS and SNS, S3 notifications to SQS, SNS, and EventBridge, CloudWatch Logs subscription filters to Kinesis, Firehose, and Logs destinations, Logs metric filters to CloudWatch, Firehose and Logs export tasks to S3, and CloudWatch alarm actions to SNS and EventBridge.
 - Protocols: awsQuery, ec2, awsJson 1.0 / 1.1, rest-json, rest-xml, and Smithy RPC v2 CBOR, checked against the botocore protocol test suite.
 - Behaviour checked against the bun-bunsai parity fixtures recorded from real AWS.
