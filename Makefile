@@ -25,7 +25,7 @@ $(JS_DEPS): js/package.json js/package-lock.json
 
 $(RUBY_DEPS): ruby/Gemfile ruby/Gemfile.lock ruby/wasmo.gemspec
 	cd ruby && BUNDLE_FROZEN=true bundle install
-	touch $@
+	mkdir -p $(@D) && touch $@
 
 test: test-rust test-go test-js test-jvm test-dotnet test-python test-ruby
 
