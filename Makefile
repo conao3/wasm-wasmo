@@ -1,7 +1,8 @@
 WASM := target/wasm32-unknown-unknown/release/wasmo_wasm.wasm
 JS_DEPS := js/node_modules/.package-lock.json
+RUBY_DEPS := ruby/vendor/bundle/.installed
 
-.PHONY: all wasm test test-rust test-go test-js test-jvm test-dotnet test-python dist-python fmt lint
+.PHONY: all wasm test test-rust test-go test-js test-jvm test-dotnet test-python test-ruby dist-python fmt lint
 
 all: test
 
@@ -12,11 +13,16 @@ wasm:
 	cp $(WASM) jvm/wasmo.wasm
 	cp $(WASM) dotnet/wasmo.wasm
 	cp $(WASM) python/src/wasmo/wasmo.wasm
+	cp $(WASM) ruby/lib/wasmo/wasmo.wasm
 
 $(JS_DEPS): js/package.json js/package-lock.json
 	cd js && npm ci
 
-test: test-rust test-go test-js test-jvm test-dotnet test-python
+$(RUBY_DEPS): ruby/Gemfile ruby/Gemfile.lock ruby/wasmo.gemspec
+	cd ruby && BUNDLE_FROZEN=true bundle install
+	touch $@
+
+test: test-rust test-go test-js test-jvm test-dotnet test-python test-ruby
 
 test-rust:
 	cargo test --workspace
@@ -36,18 +42,22 @@ test-dotnet: wasm
 test-python: wasm
 	cd python && python -m pytest
 
+test-ruby: wasm $(RUBY_DEPS)
+	cd ruby && bundle exec rake test
+
 dist-python: wasm
 	cd python && rm -rf dist && python -m build --no-isolation
 
-fmt: $(JS_DEPS)
+fmt: $(JS_DEPS) $(RUBY_DEPS)
 	cargo fmt --all
 	cd go && gofmt -w .
 	cd js && npm run format
 	cd jvm && mvn -B -q spotless:apply
 	cd dotnet && dotnet format
 	cd python && ruff check --fix . && ruff format .
+	cd ruby && bundle exec rubocop -a
 
-lint: wasm $(JS_DEPS)
+lint: wasm $(JS_DEPS) $(RUBY_DEPS)
 	cargo fmt --all -- --check
 	cargo clippy --workspace --all-targets -- -D warnings
 	cd go && test -z "$$(gofmt -l .)" && go vet ./...
@@ -55,3 +65,4 @@ lint: wasm $(JS_DEPS)
 	cd jvm && mvn -B -q spotless:check test-compile
 	cd dotnet && dotnet format --verify-no-changes && dotnet build -c Release --no-incremental
 	cd python && ruff check . && ruff format --check .
+	cd ruby && bundle exec rubocop
