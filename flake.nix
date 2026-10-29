@@ -57,6 +57,10 @@
                 ps.wasmtime
               ]))
               pkgs.ruff
+              pkgs.ruby
+              pkgs.bundler
+              pkgs.libffi
+              pkgs.pkg-config
             ];
             DOTNET_CLI_TELEMETRY_OPTOUT = "1";
             DOTNET_NOLOGO = "1";
