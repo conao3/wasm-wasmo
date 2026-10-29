@@ -3,6 +3,7 @@ import { test } from "node:test";
 import {
   CloudWatchClient,
   GetMetricDataCommand,
+  GetMetricStatisticsCommand,
   InvalidParameterValueException,
   ListMetricsCommand,
   PutMetricDataCommand,
@@ -67,6 +68,51 @@ test("cloudwatch put metric data and get metric data", async () => {
       }),
     ),
     InvalidParameterValueException,
+  );
+  aws.close();
+});
+
+test("cloudwatch large put metric data is gzipped", async () => {
+  const aws = mockAws();
+  const handler = aws.clientConfig.requestHandler;
+  const encodings: (string | undefined)[] = [];
+  const cw = new CloudWatchClient({
+    ...aws.clientConfig,
+    requestHandler: {
+      handle: (...[request, options]: Parameters<typeof handler.handle>) => {
+        encodings.push(request.headers["content-encoding"]);
+        return handler.handle(request, options);
+      },
+    },
+  });
+  const at = new Date(Math.floor(Date.now() / 3_600_000) * 3_600_000);
+  await cw.send(
+    new PutMetricDataCommand({
+      Namespace: "Bulk",
+      MetricData: Array.from({ length: 500 }, (_, i) => ({
+        MetricName: "Requests",
+        Dimensions: [{ Name: "Host", Value: `host-${(i + 1) % 10}` }],
+        Timestamp: at,
+        Value: i + 1,
+      })),
+    }),
+  );
+  assert.deepEqual(encodings, ["gzip"]);
+
+  const stats = await cw.send(
+    new GetMetricStatisticsCommand({
+      Namespace: "Bulk",
+      MetricName: "Requests",
+      Dimensions: [{ Name: "Host", Value: "host-0" }],
+      StartTime: at,
+      EndTime: new Date(at.getTime() + 3_600_000),
+      Period: 3600,
+      Statistics: ["Sum", "SampleCount"],
+    }),
+  );
+  assert.deepEqual(
+    stats.Datapoints!.map((d) => [d.Sum, d.SampleCount]),
+    [[12750, 50]],
   );
   aws.close();
 });

@@ -38,4 +38,29 @@ class CloudWatchTest < Minitest::Test
       cw.put_metric_data(namespace: "AWS/EC2", metric_data: [{ metric_name: "x", value: 1.0 }])
     end
   end
+
+  def test_large_put_metric_data_is_gzipped
+    cw = @aws.client(Aws::CloudWatch::Client)
+    encodings = []
+    cw.handle(step: :sign, priority: 0) do |context|
+      encodings << context.http_request.headers["content-encoding"]
+      @handler.call(context)
+    end
+    now = Time.now.utc
+    at = Time.utc(now.year, now.month, now.day, now.hour)
+    cw.put_metric_data(
+      namespace: "Bulk",
+      metric_data: (1..500).map do |i|
+        dims = [{ name: "Host", value: "host-#{i % 10}" }]
+        { metric_name: "Requests", dimensions: dims, timestamp: at, value: i.to_f }
+      end
+    )
+    assert_equal ["gzip"], encodings
+
+    stats = cw.get_metric_statistics(
+      namespace: "Bulk", metric_name: "Requests", dimensions: [{ name: "Host", value: "host-0" }],
+      start_time: at, end_time: at + 3600, period: 3600, statistics: %w[Sum SampleCount]
+    ).datapoints
+    assert_equal([[12_750.0, 50.0]], stats.map { |d| [d.sum, d.sample_count] })
+  end
 end

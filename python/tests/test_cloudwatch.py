@@ -63,3 +63,37 @@ def test_put_and_get_metric_data(aws):
         pass
     else:
         raise AssertionError("reserved namespace accepted")
+
+
+def test_large_put_metric_data_is_gzipped(aws):
+    cw = boto3.client("cloudwatch")
+    encodings = []
+    cw.meta.events.register_first(
+        "before-send.cloudwatch.PutMetricData",
+        lambda request, **_: encodings.append(request.headers.get("Content-Encoding")),
+    )
+    at = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
+    cw.put_metric_data(
+        Namespace="Bulk",
+        MetricData=[
+            {
+                "MetricName": "Requests",
+                "Dimensions": [{"Name": "Host", "Value": f"host-{i % 10}"}],
+                "Timestamp": at,
+                "Value": float(i),
+            }
+            for i in range(1, 501)
+        ],
+    )
+    assert encodings == [b"gzip"]
+
+    stats = cw.get_metric_statistics(
+        Namespace="Bulk",
+        MetricName="Requests",
+        Dimensions=[{"Name": "Host", "Value": "host-0"}],
+        StartTime=at,
+        EndTime=at + timedelta(hours=1),
+        Period=3600,
+        Statistics=["Sum", "SampleCount"],
+    )["Datapoints"]
+    assert [(d["Sum"], d["SampleCount"]) for d in stats] == [(12750.0, 50.0)]
