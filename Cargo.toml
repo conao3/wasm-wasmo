@@ -1,0 +1,20 @@
+[workspace]
+resolver = "3"
+members = ["crates/wasmo-core", "crates/wasmo-wasm"]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2024"
+license = "Apache-2.0"
+repository = "https://github.com/conao3/wasm-wasmo"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
