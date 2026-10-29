@@ -14,11 +14,7 @@ import { Upload } from "@aws-sdk/lib-storage";
 import { mockAws } from "../dist/index.js";
 import { md5, pattern } from "./helpers.ts";
 
-const pathStyleTodo =
-  "wasmo-core resolves PUT /<bucket>/ (the JS SDK's path-style bucket URL) as an object operation";
-
 for (const forcePathStyle of [false, true]) {
-  const opts = { todo: forcePathStyle && pathStyleTodo };
   describe(forcePathStyle ? "s3 path-style" : "s3 virtual-hosted", () => {
     const setup = async () => {
       const aws = mockAws();
@@ -27,7 +23,7 @@ for (const forcePathStyle of [false, true]) {
       return { aws, s3 };
     };
 
-    test("binary put and get", opts, async () => {
+    test("binary put and get", async () => {
       const { aws, s3 } = await setup();
       const body = pattern(70_000);
       const put = await s3.send(
@@ -47,7 +43,7 @@ for (const forcePathStyle of [false, true]) {
       aws.close();
     });
 
-    test("string and stream bodies", opts, async () => {
+    test("string and stream bodies", async () => {
       const { aws, s3 } = await setup();
       await s3.send(new PutObjectCommand({ Bucket: "media", Key: "string", Body: "hello" }));
       await s3.send(
@@ -65,7 +61,7 @@ for (const forcePathStyle of [false, true]) {
       aws.close();
     });
 
-    test("blob and web stream bodies without flexible checksums", opts, async () => {
+    test("blob and web stream bodies without flexible checksums", async () => {
       const { aws } = await setup();
       const s3 = new S3Client({
         ...aws.clientConfig,
@@ -90,7 +86,7 @@ for (const forcePathStyle of [false, true]) {
       aws.close();
     });
 
-    test("multipart upload through lib-storage", opts, async () => {
+    test("multipart upload through lib-storage", async () => {
       const { aws, s3 } = await setup();
       const body = pattern(12 * 1024 * 1024 + 123);
       const upload = new Upload({
@@ -108,7 +104,7 @@ for (const forcePathStyle of [false, true]) {
       aws.close();
     });
 
-    test("missing key is NoSuchKey", opts, async () => {
+    test("missing key is NoSuchKey", async () => {
       const { aws, s3 } = await setup();
       await assert.rejects(
         s3.send(new GetObjectCommand({ Bucket: "media", Key: "missing" })),
