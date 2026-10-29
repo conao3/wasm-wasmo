@@ -73,3 +73,37 @@ aws-models/
 
 `crates/wasmo-core/build.rs` strips documentation fields at build time; the
 files here stay byte-for-byte upstream.
+
+## parity-fixtures/
+
+|               |                                                                                       |
+| ------------- | ------------------------------------------------------------------------------------- |
+| Upstream repo | https://github.com/conao3/bun-bunsai                                                   |
+| License       | Apache-2.0 (`parity-fixtures/LICENSE`, `parity-fixtures/NOTICE`)                      |
+| Commit hash   | `df13799e939f9424b5801d8cf3caea7c5d9fbad2` (fixtures last changed in `34bdc1dfe90190edbc568cd1f26c94a35fefc6e2`) |
+| Source path   | `test/parity/fixtures/`                                                               |
+| Fetched on    | 2026-10-28 (JST)                                                                      |
+| Method        | `git archive <commit> test/parity/fixtures` from a local clone, extracted verbatim    |
+
+### Layout
+
+```
+parity-fixtures/
+  <service>/<case>.json   # 150 fixtures for 41 services
+  LICENSE                 # bun-bunsai Apache-2.0 license text
+  NOTICE                  # bun-bunsai NOTICE
+```
+
+### Notes
+
+- Each fixture is a sequence of AWS SDK for JavaScript v3 commands (`clientPackage`,
+  `clientName`, `steps[].command` / `input` / `expected` / `expectedError` /
+  `ignorePaths` / `saveAs`). `<ANY>` matches any value, `${name.path}` refers to
+  the output saved by an earlier step, and `{"$base64": ...}` is a byte payload.
+- bun-bunsai derives the expectations from real AWS: LocalStack v3.8.1 snapshot
+  recordings (Apache-2.0, commit `529aba7d8372e9199f42a31a6500071363ad8c18`),
+  moto 5.2.2 `@aws_verified` tests (Apache-2.0, commit
+  `837595545cc4a4bb8fede2cff84b2b2373443981`), and the AWS API reference. The
+  per-fixture origin is listed in bun-bunsai's `test/vendor/PROVENANCE.md`.
+- `crates/wasmo-core/tests/parity.rs` runs the fixtures of the services wasmo
+  emulates and skips the rest.
