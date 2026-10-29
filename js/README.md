@@ -2,7 +2,7 @@
 
 A stateful AWS mock that runs inside your test process. Write a value to DynamoDB and the next `GetItem` returns it; put an object in S3 and `ListObjectsV2` shows it. No Docker, no ports, no sidecar process: the AWS emulator is a single WebAssembly module that plugs into the AWS SDK for JavaScript v3 as its `requestHandler`.
 
-Emulated services: STS, SQS, DynamoDB, S3. The same module also backs wasmo's Go adapter, so every language sees the same behaviour. Source and service coverage: <https://github.com/conao3/wasm-wasmo>.
+Emulated services: STS, SQS, DynamoDB, S3. The same module also backs wasmo's Go and JVM adapters, so every language sees the same behaviour. Source and service coverage: <https://github.com/conao3/wasm-wasmo>.
 
 `@conao3/wasmo` plugs into the AWS SDK for JavaScript v3 as a `requestHandler`. It runs on Node.js 20+ and Bun, ships ESM with type declarations, and has no runtime dependencies. The WebAssembly module is compiled once per process; each `mockAws()` gets its own instance.
 
