@@ -7,7 +7,8 @@ This product includes protocol compliance test data from Botocore (Apache-2.0).
 
 The vendored Botocore protocol test data lives under
 vendor/botocore-protocol-tests/ together with the upstream LICENSE.txt
-and NOTICE. The upstream NOTICE is reproduced below.
+and NOTICE. The service models under vendor/aws-models/ come from the same
+Botocore release. The upstream NOTICE is reproduced below.
 
 ------------------------------------------------------------------------
 

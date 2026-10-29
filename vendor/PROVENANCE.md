@@ -48,3 +48,28 @@ botocore-protocol-tests/
   `botocore-protocol-tests/` to satisfy Apache-2.0 4(a)/4(d). The root `NOTICE`
   propagates the Botocore attribution.
 
+## aws-models/
+
+|               |                                                                                                                                                |
+| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| Upstream repo | https://github.com/boto/botocore                                                                                                               |
+| License       | Apache-2.0                                                                                                                                     |
+| Pinned tag    | `1.43.19`                                                                                                                                      |
+| Commit hash   | `8fdb47d1636e7f7ae0cacdd4584ffd339f88c546`                                                                                                     |
+| Source path   | `botocore/data/<service>/<apiVersion>/service-2.json`                                                                                          |
+| Fetched on    | 2026-06-02 (JST)                                                                                                                                |
+| Method        | GitHub Contents API (`api.github.com/repos/boto/botocore/contents/botocore/data/<service>?ref=<tag>`) to discover the apiVersion directory, then `raw.githubusercontent.com/boto/botocore/<commit>/botocore/data/<service>/<apiVersion>/service-2.json` for the bytes (verbatim) |
+
+
+### Layout
+
+```
+aws-models/
+  sts.json       # botocore/data/sts/2011-06-15/service-2.json       (protocol query)
+  sqs.json       # botocore/data/sqs/2012-11-05/service-2.json       (protocol json)
+  dynamodb.json  # botocore/data/dynamodb/2012-08-10/service-2.json  (protocol json)
+  s3.json        # botocore/data/s3/2006-03-01/service-2.json        (protocol rest-xml)
+```
+
+`crates/wasmo-core/build.rs` strips documentation fields at build time; the
+files here stay byte-for-byte upstream.

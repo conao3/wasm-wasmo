@@ -5,6 +5,7 @@ go 1.26.10
 require (
 	github.com/aws/aws-sdk-go-v2 v1.47.5
 	github.com/aws/aws-sdk-go-v2/credentials v1.20.12
+	github.com/aws/aws-sdk-go-v2/service/sqs v1.52.7
 	github.com/aws/aws-sdk-go-v2/service/sts v1.51.6
 	github.com/tetratelabs/wazero v1.12.0
 )

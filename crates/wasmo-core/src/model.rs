@@ -171,6 +171,16 @@ impl Registry {
             .unwrap_or_else(|| panic!("wasmo: unknown shape {name}"))
     }
 
+    pub fn get(&self, name: &str) -> Option<&Shape> {
+        self.shapes.get(name)
+    }
+
+    pub fn get_key_value(&self, name: &str) -> Option<(&str, &Shape)> {
+        self.shapes
+            .get_key_value(name)
+            .map(|(k, v)| (k.as_str(), v))
+    }
+
     pub fn member_shape(&self, member: &MemberRef) -> &Shape {
         self.shape(&member.shape)
     }

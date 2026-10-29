@@ -1,0 +1,11 @@
+[extend]
+useDefault = true
+
+[allowlist]
+description = "vendor/ holds byte-for-byte copies of botocore data (Apache-2.0); generic-api-key matches model fields such as authtype. The STS emulator returns AWS's public documentation example secret key, not a real secret."
+paths = [
+  '''vendor/.*''',
+]
+regexes = [
+  '''wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY''',
+]
