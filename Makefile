@@ -20,7 +20,7 @@ fmt:
 	cargo fmt --all
 	cd go && gofmt -w .
 
-lint:
+lint: wasm
 	cargo fmt --all -- --check
 	cargo clippy --workspace --all-targets -- -D warnings
 	cd go && test -z "$$(gofmt -l .)" && go vet ./...

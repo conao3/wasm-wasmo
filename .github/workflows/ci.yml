@@ -1,0 +1,23 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: cachix/install-nix-action@v31
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/go/pkg/mod
+            target
+          key: ${{ runner.os }}-${{ hashFiles('Cargo.lock', 'go/go.sum', 'flake.lock') }}
+      - run: nix develop --command make lint
+      - run: nix develop --command make test
