@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { Readable } from "node:stream";
+import { format } from "node:util";
 import type {
   AwsCredentialIdentity,
   HeaderBag,
@@ -30,8 +31,29 @@ export interface WasmoClientConfig {
   requestHandler: WasmoRequestHandler;
 }
 
+export interface FunctionContext {
+  readonly functionName: string;
+  readonly functionVersion: string;
+  readonly invokedFunctionArn: string;
+  readonly memoryLimitInMB: string;
+  readonly awsRequestId: string;
+  readonly logGroupName: string;
+  readonly logStreamName: string;
+  readonly invocationType: string;
+  readonly clientContext?: unknown;
+  /** The function's environment variables and the ones Lambda sets (AWS_REGION, ...). */
+  readonly environment: Readonly<Record<string, string>>;
+  getRemainingTimeInMillis(): number;
+  /** Appends a line to the invocation log that Invoke returns with LogType Tail. */
+  log(...args: unknown[]): void;
+}
+
+export type FunctionHandler = (event: any, context: FunctionContext) => unknown;
+
 export interface WasmoMock {
   readonly clientConfig: WasmoClientConfig;
+  /** Binds a handler to every invocation of the Lambda function with this name. */
+  registerFunction(name: string, handler: FunctionHandler): void;
   reset(): void;
   close(): void;
 }
@@ -41,6 +63,31 @@ interface Exports {
   wasmo_alloc(len: number): number;
   wasmo_free(ptr: number, len: number): void;
   wasmo_handle(metaPtr: number, metaLen: number, bodyPtr: number, bodyLen: number): bigint;
+  wasmo_complete(metaPtr: number, metaLen: number, payloadPtr: number, payloadLen: number): bigint;
+}
+
+interface Invocation {
+  meta: Uint8Array;
+  payload: Uint8Array;
+}
+
+interface InvocationMeta {
+  id: string;
+  functionName: string;
+  functionVersion: string;
+  invokedFunctionArn: string;
+  memoryLimitInMB: number;
+  deadlineMs: number;
+  awsRequestId: string;
+  logGroupName: string;
+  logStreamName: string;
+  invocationType: string;
+  clientContext?: string;
+  environment: Record<string, string>;
+}
+
+interface Queue {
+  current: Invocation[] | undefined;
 }
 
 let compiled: Promise<WebAssembly.Module> | undefined;
@@ -52,8 +99,10 @@ function compile(): Promise<WebAssembly.Module> {
   return compiled;
 }
 
-function instantiate(module: WebAssembly.Module): Exports {
+function instantiate(module: WebAssembly.Module, queue: Queue): Exports {
   let memory: WebAssembly.Memory | undefined;
+  const copy = (ptr: number, len: number) =>
+    new Uint8Array(memory!.buffer, ptr >>> 0, len >>> 0).slice();
   const instance = new WebAssembly.Instance(module, {
     wasmo: {
       now_ms: () => Date.now(),
@@ -62,6 +111,10 @@ function instantiate(module: WebAssembly.Module): Exports {
         for (let off = 0; off < view.length; off += 65536) {
           crypto.getRandomValues(view.subarray(off, off + 65536));
         }
+      },
+      invoke: (metaPtr: number, metaLen: number, payloadPtr: number, payloadLen: number) => {
+        if (!queue.current) throw new Error("wasmo: invoke outside a request");
+        queue.current.push({ meta: copy(metaPtr, metaLen), payload: copy(payloadPtr, payloadLen) });
       },
     },
   });
@@ -161,10 +214,16 @@ function put(ex: Exports, data: Uint8Array): number {
   return ptr;
 }
 
-function roundtrip(ex: Exports, meta: Uint8Array, body: Uint8Array): Uint8Array {
+function roundtrip(
+  ex: Exports,
+  fn: (a: number, b: number, c: number, d: number) => bigint,
+  meta: Uint8Array,
+  body: Uint8Array,
+): Uint8Array | undefined {
   const metaPtr = put(ex, meta);
   const bodyPtr = put(ex, body);
-  const res = ex.wasmo_handle(metaPtr, meta.length, bodyPtr, body.length);
+  const res = fn(metaPtr, meta.length, bodyPtr, body.length);
+  if (res === 0n) return undefined;
   const ptr = Number(res >> 32n);
   const len = Number(res & 0xffffffffn);
   const frame = new Uint8Array(ex.memory.buffer, ptr, len).slice();
@@ -181,6 +240,62 @@ function responseBody(bytes: Uint8Array): Readable {
   });
 }
 
+function errorOf(e: unknown): { type: string; message: string; stackTrace?: string[] } {
+  if (e instanceof Error) {
+    const stackTrace = e.stack
+      ?.split("\n")
+      .slice(1)
+      .map((line) => line.trim());
+    return { type: e.name, message: e.message, ...(stackTrace ? { stackTrace } : {}) };
+  }
+  return { type: typeof e, message: String(e) };
+}
+
+function parseClientContext(raw: string | undefined): unknown {
+  if (raw === undefined) return undefined;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return raw;
+  }
+}
+
+async function run(
+  handlers: Map<string, FunctionHandler>,
+  inv: Invocation,
+): Promise<[Uint8Array, Uint8Array]> {
+  const meta = JSON.parse(decoder.decode(inv.meta)) as InvocationMeta;
+  const handler = handlers.get(meta.functionName);
+  const empty = new Uint8Array(0);
+  if (!handler) return [encoder.encode(JSON.stringify({ id: meta.id, registered: false })), empty];
+  const lines: string[] = [];
+  const context: FunctionContext = {
+    functionName: meta.functionName,
+    functionVersion: meta.functionVersion,
+    invokedFunctionArn: meta.invokedFunctionArn,
+    memoryLimitInMB: String(meta.memoryLimitInMB),
+    awsRequestId: meta.awsRequestId,
+    logGroupName: meta.logGroupName,
+    logStreamName: meta.logStreamName,
+    invocationType: meta.invocationType,
+    clientContext: parseClientContext(meta.clientContext),
+    environment: meta.environment,
+    getRemainingTimeInMillis: () => Math.max(0, meta.deadlineMs - Date.now()),
+    log: (...args) => lines.push(format(...args)),
+  };
+  const log = () => lines.map((l) => `${l}\n`).join("");
+  try {
+    const event: unknown = JSON.parse(decoder.decode(inv.payload));
+    const out: unknown = await handler(event, context);
+    return [
+      encoder.encode(JSON.stringify({ id: meta.id, log: log() })),
+      encoder.encode(JSON.stringify(out ?? null)),
+    ];
+  } catch (e) {
+    return [encoder.encode(JSON.stringify({ id: meta.id, error: errorOf(e), log: log() })), empty];
+  }
+}
+
 function abortError(signal: { reason?: unknown }): Error {
   if (signal.reason instanceof Error) return signal.reason;
   const err = new Error("Request aborted");
@@ -191,6 +306,8 @@ function abortError(signal: { reason?: unknown }): Error {
 export function mockAws(): WasmoMock {
   let instance: Exports | undefined;
   let closed = false;
+  const queue: Queue = { current: undefined };
+  const handlers = new Map<string, FunctionHandler>();
   compile().catch(() => {});
 
   async function exportsFor(): Promise<Exports> {
@@ -198,7 +315,7 @@ export function mockAws(): WasmoMock {
     if (instance) return instance;
     const module = await compile();
     if (closed) throw new Error("wasmo: mock is closed");
-    instance ??= instantiate(module);
+    instance ??= instantiate(module, queue);
     return instance;
   }
 
@@ -226,13 +343,28 @@ export function mockAws(): WasmoMock {
       );
       const ex = await exportsFor();
       if (signal?.aborted) throw abortError(signal as { reason?: unknown });
-      const frame = roundtrip(ex, meta, body);
+      const pending: Invocation[] = [];
+      const call = (fn: Exports["wasmo_handle"], m: Uint8Array, b: Uint8Array) => {
+        queue.current = pending;
+        try {
+          return roundtrip(ex, fn, m, b);
+        } finally {
+          queue.current = undefined;
+        }
+      };
+      let frame = call(ex.wasmo_handle, meta, body)!;
+      while (pending.length > 0) {
+        const [resMeta, payload] = await run(handlers, pending.shift()!);
+        frame = call(ex.wasmo_complete, resMeta, payload) ?? frame;
+      }
       const view = new DataView(frame.buffer, frame.byteOffset, frame.byteLength);
       const metaLen = view.getUint32(0);
       const res = JSON.parse(decoder.decode(frame.subarray(4, 4 + metaLen))) as {
+        await?: string;
         status: number;
         headers: [string, string][];
       };
+      if (res.await) throw new Error(`wasmo: invocation ${res.await} was never answered`);
       const resHeaders: HeaderBag = {};
       for (const [k, v] of res.headers) {
         const name = k.toLowerCase();
@@ -258,6 +390,9 @@ export function mockAws(): WasmoMock {
       region,
       credentials: { accessKeyId: "test", secretAccessKey: "test" },
       requestHandler,
+    },
+    registerFunction(name, handler) {
+      handlers.set(name, handler);
     },
     reset() {
       if (closed) throw new Error("wasmo: mock is closed");
