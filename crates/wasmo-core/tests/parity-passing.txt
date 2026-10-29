@@ -16,6 +16,9 @@ dynamodb/update-item-remove-expression
 events/event-bus-lifecycle
 events/rule-lifecycle
 events/tags
+kinesis/record-chain
+kinesis/stream-error
+kinesis/stream-lifecycle
 kms/create-alias-list
 kms/create-describe-key
 kms/create-key

@@ -617,6 +617,7 @@ fn publish_to_topic(
             group_id: message.group_id.clone(),
             dedup_id: message.dedup_id.clone(),
             dead_letter,
+            ..Default::default()
         });
     }
     Ok(result)

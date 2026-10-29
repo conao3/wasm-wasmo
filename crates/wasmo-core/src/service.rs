@@ -88,6 +88,9 @@ pub struct Delivery {
     pub target: String,
     pub source: String,
     pub body: String,
+    /// Binary payload for targets that store blobs (Kinesis, Firehose); `body` is
+    /// used when unset.
+    pub bytes: Option<Vec<u8>>,
     pub subject: Option<String>,
     /// SQS/SNS-style attributes: `{name: {DataType, StringValue | BinaryValue}}`.
     pub attributes: Map<String, Value>,
