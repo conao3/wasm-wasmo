@@ -91,8 +91,14 @@ fn lex(s: &str) -> Result<Vec<PTok>, AwsError> {
             continue;
         }
         if ch.is_ascii_alphabetic() || ch == '_' {
+            let table_name = matches!(
+                out.last(),
+                Some(PTok::Word(w)) if ["FROM", "INTO", "UPDATE"].iter().any(|k| w.eq_ignore_ascii_case(k))
+            );
             let mut j = i;
-            while j < c.len() && (c[j].is_ascii_alphanumeric() || c[j] == '_') {
+            while j < c.len()
+                && (c[j].is_ascii_alphanumeric() || c[j] == '_' || (table_name && c[j] == '-'))
+            {
                 j += 1;
             }
             out.push(PTok::Word(c[i..j].iter().collect()));
