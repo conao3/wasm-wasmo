@@ -1,0 +1,46 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "wasmo"
+version = "0.1.0"
+description = "Stateful in-process AWS mock for boto3, powered by a single WebAssembly module"
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+requires-python = ">=3.10"
+authors = [{ name = "conao3" }]
+keywords = ["aws", "boto3", "botocore", "mock", "testing", "webassembly"]
+classifiers = [
+  "Framework :: Pytest",
+  "Intended Audience :: Developers",
+  "Programming Language :: Python :: 3",
+  "Topic :: Software Development :: Testing :: Mocking",
+  "Typing :: Typed",
+]
+dependencies = ["boto3>=1.36", "botocore>=1.36", "wasmtime>=50"]
+
+[project.urls]
+Homepage = "https://github.com/conao3/wasm-wasmo"
+Source = "https://github.com/conao3/wasm-wasmo/tree/main/python"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/wasmo"]
+artifacts = ["src/wasmo/wasmo.wasm"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/wasmo", "tests", "README.md", "LICENSE", "NOTICE"]
+artifacts = ["src/wasmo/wasmo.wasm"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-p no:cacheprovider"
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF"]

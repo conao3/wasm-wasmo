@@ -7,3 +7,8 @@
 /dotnet/*/*/bin/
 /dotnet/*/*/obj/
 /dotnet/TestResults/
+/python/src/wasmo/wasmo.wasm
+/python/dist/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
