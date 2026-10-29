@@ -1,0 +1,234 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: Build, test, and pack every package without publishing
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      publish: ${{ steps.version.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: version
+        env:
+          PUBLISH: ${{ github.ref_type == 'tag' && (github.event_name == 'push' || inputs.dry-run == false) }}
+        run: |
+          if [ "$PUBLISH" = true ]; then
+            scripts/version.sh check "$GITHUB_REF_NAME"
+          else
+            scripts/version.sh check
+          fi
+          echo "version=$(scripts/version.sh get)" >> "$GITHUB_OUTPUT"
+          echo "publish=$PUBLISH" >> "$GITHUB_OUTPUT"
+      - uses: cachix/install-nix-action@v31
+      - run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+      - run: nix develop --command make test
+      - run: nix develop --command make dist
+      - run: cat dist/SHA256SUMS
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  npm:
+    needs: build
+    if: needs.build.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+      - run: scripts/version.sh check "$GITHUB_REF_NAME"
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - run: npm publish "dist/js/conao3-wasmo-$VERSION.tgz" --access public --provenance
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  pypi:
+    needs: build
+    if: needs.build.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+      - run: scripts/version.sh check "$GITHUB_REF_NAME"
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/python/
+
+  rubygems:
+    needs: build
+    if: needs.build.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    environment: rubygems
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+      - run: scripts/version.sh check "$GITHUB_REF_NAME"
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+      - uses: rubygems/configure-rubygems-credentials@v2
+      - run: gem push "dist/ruby/wasmo-$VERSION.gem"
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+
+  nuget:
+    needs: build
+    if: needs.build.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    environment: nuget
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+      - run: scripts/version.sh check "$GITHUB_REF_NAME"
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 8.0.x
+      - id: login
+        uses: NuGet/login@v1
+        with:
+          user: ${{ secrets.NUGET_USER }}
+      - run: dotnet nuget push "dist/dotnet/Wasmo.$VERSION.nupkg" --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+          NUGET_API_KEY: ${{ steps.login.outputs.NUGET_API_KEY }}
+
+  maven:
+    needs: build
+    if: needs.build.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    environment: maven-central
+    steps:
+      - uses: actions/checkout@v7
+      - run: scripts/version.sh check "$GITHUB_REF_NAME"
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist
+      - uses: cachix/install-nix-action@v31
+      - run: |
+          cat > "$RUNNER_TEMP/settings.xml" << 'EOF'
+          <settings>
+            <servers>
+              <server>
+                <id>central</id>
+                <username>${env.MAVEN_CENTRAL_USERNAME}</username>
+                <password>${env.MAVEN_CENTRAL_PASSWORD}</password>
+              </server>
+            </servers>
+          </settings>
+          EOF
+      - run: |
+          nix develop --command make wasm
+          cd jvm
+          nix develop .. --command mvn -B -P release -DskipTests -s "$RUNNER_TEMP/settings.xml" verify
+          for f in "wasmo-$VERSION.jar" "wasmo-$VERSION-sources.jar" "wasmo-$VERSION-javadoc.jar"; do
+            cmp "target/$f" "../dist/jvm/$f"
+          done
+          nix develop .. --command mvn -B -P release -DskipTests -s "$RUNNER_TEMP/settings.xml" deploy
+        env:
+          WASMO_WASM: dist/wasmo.wasm
+          VERSION: ${{ needs.build.outputs.version }}
+          MAVEN_CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          MAVEN_CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+          MAVEN_GPG_KEY: ${{ secrets.MAVEN_GPG_KEY }}
+          MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
+
+  go:
+    needs: [build, npm, pypi, rubygems, nuget, maven]
+    if: needs.build.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - run: scripts/version.sh check "$GITHUB_REF_NAME"
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go/go.mod
+          cache: false
+      - run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+      - run: scripts/go-release.sh dist/wasmo.wasm --push
+      - run: |
+          cd "$(mktemp -d)"
+          go mod init example.com/warm
+          GOPROXY=https://proxy.golang.org go list -m "github.com/conao3/wasm-wasmo/go@v$VERSION"
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+
+  github-release:
+    needs: [build, go]
+    if: needs.build.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - run: scripts/version.sh check "$GITHUB_REF_NAME"
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist
+      - run: |
+          awk -v v="$VERSION" '$0 ~ "^## \\[" v "\\]" {on=1; next} /^## \[/ {on=0} on' CHANGELOG.md > "$RUNNER_TEMP/notes.md"
+          test -s "$RUNNER_TEMP/notes.md"
+          gh release create "$GITHUB_REF_NAME" --verify-tag --title "wasmo $VERSION" --notes-file "$RUNNER_TEMP/notes.md" \
+            dist/wasmo.wasm dist/SHA256SUMS dist/*/*
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+          GH_TOKEN: ${{ github.token }}
