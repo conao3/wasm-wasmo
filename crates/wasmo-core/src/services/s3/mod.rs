@@ -16,6 +16,7 @@ mod checksum;
 mod list;
 mod listing;
 mod multipart;
+mod notify;
 mod object;
 mod state;
 
@@ -226,11 +227,21 @@ impl Service for S3 {
     }
 
     fn call(&mut self, ctx: &mut Ctx<'_>, operation: &str, input: Value) -> OpResult {
+        let output = self.dispatch(ctx, operation, &input)?;
+        if let Some(buckets) = self.accounts.get(&ctx.account) {
+            notify::emit(buckets, ctx, operation, &input, &output);
+        }
+        Ok(output)
+    }
+}
+
+impl S3 {
+    fn dispatch(&mut self, ctx: &mut Ctx<'_>, operation: &str, input: &Value) -> OpResult {
         if matches!(operation, "CreateBucket" | "ListBuckets") {
-            return bucket::account_op(&mut self.accounts, ctx, operation, &input);
+            return bucket::account_op(&mut self.accounts, ctx, operation, input);
         }
         let buckets = self.accounts.entry(ctx.account.clone()).or_default();
-        if let Some(result) = bucket::config_op(buckets, operation, &input) {
+        if let Some(result) = bucket::config_op(buckets, operation, input) {
             return result;
         }
         match operation {
@@ -241,18 +252,18 @@ impl Service for S3 {
             | "GetBucketVersioning"
             | "GetBucketAcl"
             | "PutBucketAcl"
-            | "GetBucketPolicyStatus" => bucket::bucket_op(buckets, ctx, operation, &input),
+            | "GetBucketPolicyStatus" => bucket::bucket_op(buckets, ctx, operation, input),
             "ListObjects"
             | "ListObjectsV2"
             | "ListObjectVersions"
             | "ListMultipartUploads"
-            | "ListParts" => listing::call(buckets, ctx, operation, &input),
+            | "ListParts" => listing::call(buckets, ctx, operation, input),
             "CreateMultipartUpload"
             | "UploadPart"
             | "UploadPartCopy"
             | "CompleteMultipartUpload"
-            | "AbortMultipartUpload" => multipart::call(buckets, ctx, operation, &input),
-            _ => object::call(buckets, ctx, operation, &input),
+            | "AbortMultipartUpload" => multipart::call(buckets, ctx, operation, input),
+            _ => object::call(buckets, ctx, operation, input),
         }
     }
 }
