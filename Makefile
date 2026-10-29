@@ -2,7 +2,7 @@ WASM := target/wasm32-unknown-unknown/release/wasmo_wasm.wasm
 JS_DEPS := js/node_modules/.package-lock.json
 RUBY_DEPS := ruby/vendor/bundle/.installed
 
-.PHONY: all wasm test test-rust test-go test-js test-jvm test-dotnet test-python test-ruby dist-python fmt lint
+.PHONY: all wasm test test-rust test-go test-js test-jvm test-dotnet test-python test-ruby dist-python version check-version fmt lint
 
 all: test
 
@@ -48,6 +48,12 @@ test-ruby: wasm $(RUBY_DEPS)
 dist-python: wasm
 	cd python && rm -rf dist && python -m build --no-isolation
 
+version:
+	scripts/version.sh set
+
+check-version:
+	scripts/version.sh check
+
 fmt: $(JS_DEPS) $(RUBY_DEPS)
 	cargo fmt --all
 	cd go && gofmt -w .
@@ -58,6 +64,7 @@ fmt: $(JS_DEPS) $(RUBY_DEPS)
 	cd ruby && bundle exec rubocop -a
 
 lint: wasm $(JS_DEPS) $(RUBY_DEPS)
+	scripts/version.sh check
 	cargo fmt --all -- --check
 	cargo clippy --workspace --all-targets -- -D warnings
 	cd go && test -z "$$(gofmt -l .)" && go vet ./...
