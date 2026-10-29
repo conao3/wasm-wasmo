@@ -13,9 +13,19 @@ requires-python = ">=3.10"
 authors = [{ name = "conao3" }]
 keywords = ["aws", "boto3", "botocore", "mock", "testing", "webassembly"]
 classifiers = [
+  "Development Status :: 3 - Alpha",
   "Framework :: Pytest",
   "Intended Audience :: Developers",
+  "Operating System :: MacOS",
+  "Operating System :: POSIX :: Linux",
   "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Topic :: Software Development :: Testing",
   "Topic :: Software Development :: Testing :: Mocking",
   "Typing :: Typed",
 ]
@@ -23,7 +33,10 @@ dependencies = ["boto3>=1.36", "botocore>=1.36", "wasmtime>=50"]
 
 [project.urls]
 Homepage = "https://github.com/conao3/wasm-wasmo"
+Documentation = "https://github.com/conao3/wasm-wasmo/tree/main/python#readme"
 Source = "https://github.com/conao3/wasm-wasmo/tree/main/python"
+Issues = "https://github.com/conao3/wasm-wasmo/issues"
+Changelog = "https://github.com/conao3/wasm-wasmo/blob/main/CHANGELOG.md"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/wasmo"]

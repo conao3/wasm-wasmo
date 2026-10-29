@@ -144,7 +144,7 @@ Event invocations retry a failed handler up to `MaximumRetryAttempts` (2 by defa
 
 ## JavaScript / TypeScript
 
-`@conao3/wasmo` plugs into the AWS SDK for JavaScript v3 as a `requestHandler`. It runs on Node.js 20+ and Bun, ships ESM with type declarations, and has no runtime dependencies. The WebAssembly module is compiled once per process; each `mockAws()` gets its own instance.
+`@conao3/wasmo` plugs into the AWS SDK for JavaScript v3 as a `requestHandler`. It runs on Node.js 22+ and Bun, ships ESM with type declarations, and has no runtime dependencies. The WebAssembly module is compiled once per process; each `mockAws()` gets its own instance.
 
 ```ts
 import { mockAws } from "@conao3/wasmo";
@@ -267,7 +267,7 @@ Inside `mock_aws()`, clients default to the endpoint `http://wasmo.local`, regio
 
 ## Ruby
 
-The `wasmo` gem plugs into the AWS SDK for Ruby v3 as a Seahorse plugin whose send handler replaces Net::HTTP, so signing, retries, checksums, and response parsing stay in the SDK. It needs Ruby 3.2+ and runs the module with [wasmtime-rb](https://github.com/bytecodealliance/wasmtime-rb); the WebAssembly module ships inside the gem. The module is loaded once per process, and its compiled machine code is cached in `Gem.cache_home/wasmo` (`~/.cache/wasmo`), so only the first run after an upgrade compiles it. Each `Wasmo::Mock` gets its own instance, and calls into one instance are serialized, so a mock can be shared across threads.
+The `wasmo` gem plugs into the AWS SDK for Ruby v3 as a Seahorse plugin whose send handler replaces Net::HTTP, so signing, retries, checksums, and response parsing stay in the SDK. It needs Ruby 3.3+ and runs the module with [wasmtime-rb](https://github.com/bytecodealliance/wasmtime-rb); the WebAssembly module ships inside the gem. The module is loaded once per process, and its compiled machine code is cached in `Gem.cache_home/wasmo` (`~/.cache/wasmo`), so only the first run after an upgrade compiles it. Each `Wasmo::Mock` gets its own instance, and calls into one instance are serialized, so a mock can be shared across threads.
 
 ```ruby
 require "wasmo"
@@ -318,7 +318,7 @@ end
 
 `aws.request(method, url, headers, body)` sends a raw HTTP request to the mock, e.g. to fetch a presigned URL from `Aws::S3::Presigner`.
 
-wasmtime-rb publishes precompiled native gems for Ruby 3.3+ on x86_64/aarch64 Linux (glibc and musl) and macOS; on Ruby 3.2 or other platforms Bundler builds it from source, which needs a Rust toolchain. The precompiled `x86_64-linux` gem also loads on NixOS under the nixpkgs `ruby`: its only dependencies are glibc and `libgcc_s`, which the nixpkgs Ruby has already loaded.
+wasmtime-rb publishes precompiled native gems for Ruby 3.3+ on x86_64/aarch64 Linux (glibc and musl) and macOS; on other platforms Bundler builds it from source, which needs a Rust toolchain. The precompiled `x86_64-linux` gem also loads on NixOS under the nixpkgs `ruby`: its only dependencies are glibc and `libgcc_s`, which the nixpkgs Ruby has already loaded.
 
 ## Layout
 

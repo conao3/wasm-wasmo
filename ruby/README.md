@@ -26,7 +26,7 @@ Lambda functions created with `create_function` run blocks registered by name, o
 
 The compiled module is cached in `Gem.cache_home/wasmo` (`~/.cache/wasmo`), so only the first run after an upgrade pays for compilation.
 
-Ruby 3.2+. wasmtime-rb ships precompiled native gems for Ruby 3.3+ on Linux and macOS; elsewhere Bundler builds it from source with a Rust toolchain.
+Ruby 3.3+. wasmtime-rb ships precompiled native gems for Linux and macOS; elsewhere Bundler builds it from source with a Rust toolchain.
 
 ## License
 

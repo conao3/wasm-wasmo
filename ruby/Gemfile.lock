@@ -109,10 +109,16 @@ GEM
     unicode-display_width (3.3.0)
       unicode-emoji (~> 4.3)
     unicode-emoji (4.3.0)
+    wasmtime (50.0.0-aarch64-linux)
+    wasmtime (50.0.0-arm64-darwin)
+    wasmtime (50.0.0-x86_64-darwin)
     wasmtime (50.0.0-x86_64-linux)
     wasmtime (50.0.0-x86_64-linux-musl)
 
 PLATFORMS
+  aarch64-linux
+  arm64-darwin
+  x86_64-darwin
   x86_64-linux
   x86_64-linux-musl
 

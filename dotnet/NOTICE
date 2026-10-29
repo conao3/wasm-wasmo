@@ -1,0 +1,12 @@
+wasmo
+Copyright 2026 conao3
+
+This product is licensed under the Apache License, Version 2.0.
+
+The WebAssembly module embeds AWS service models from Botocore
+(https://github.com/boto/botocore, Apache-2.0).
+
+------------------------------------------------------------------------
+
+Botocore
+Copyright 2012-2022 Amazon.com, Inc. or its affiliates. All Rights Reserved.

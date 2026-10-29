@@ -4,7 +4,7 @@ A stateful AWS mock that runs inside your test process. Write a value to DynamoD
 
 Emulated services: STS, SQS, DynamoDB, DynamoDB Streams, S3, SNS, EventBridge, Secrets Manager, SSM Parameter Store, KMS, IAM, CloudWatch, CloudWatch Logs, Kinesis, Data Firehose. The same module also backs wasmo's Go and JVM adapters, so every language sees the same behaviour. Source and service coverage: <https://github.com/conao3/wasm-wasmo>.
 
-`@conao3/wasmo` plugs into the AWS SDK for JavaScript v3 as a `requestHandler`. It runs on Node.js 20+ and Bun, ships ESM with type declarations, and has no runtime dependencies. The WebAssembly module is compiled once per process; each `mockAws()` gets its own instance.
+`@conao3/wasmo` plugs into the AWS SDK for JavaScript v3 as a `requestHandler`. It runs on Node.js 22+ and Bun, ships ESM with type declarations, and has no runtime dependencies. The WebAssembly module is compiled once per process; each `mockAws()` gets its own instance.
 
 ```ts
 import { mockAws } from "@conao3/wasmo";

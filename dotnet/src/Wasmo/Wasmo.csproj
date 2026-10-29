@@ -5,17 +5,28 @@
     <PackageId>Wasmo</PackageId>
     <Version>0.1.0</Version>
     <Authors>conao3</Authors>
+    <Copyright>Copyright 2026 conao3</Copyright>
     <Description>A stateful in-process AWS mock for the AWS SDK for .NET, powered by a single WebAssembly module.</Description>
     <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
     <PackageProjectUrl>https://github.com/conao3/wasm-wasmo</PackageProjectUrl>
+    <PackageReleaseNotes>https://github.com/conao3/wasm-wasmo/blob/main/CHANGELOG.md</PackageReleaseNotes>
     <RepositoryUrl>https://github.com/conao3/wasm-wasmo</RepositoryUrl>
-    <PackageTags>aws;mock;testing;wasm;s3;dynamodb;sqs</PackageTags>
+    <RepositoryType>git</RepositoryType>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <Deterministic>true</Deterministic>
+    <ContinuousIntegrationBuild Condition="'$(GITHUB_ACTIONS)' == 'true'">true</ContinuousIntegrationBuild>
+    <PackageTags>aws;mock;testing;wasm;webassembly;s3;dynamodb;sqs;sns;kms</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
   </PropertyGroup>
   <ItemGroup>
     <EmbeddedResource Include="../../wasmo.wasm" LogicalName="wasmo.wasm" />
     <None Include="README.md" Pack="true" PackagePath="/" />
+    <None Include="../../LICENSE" Pack="true" PackagePath="/" />
+    <None Include="../../NOTICE" Pack="true" PackagePath="/" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="AWSSDK.Core" Version="4.0.102.14" />
