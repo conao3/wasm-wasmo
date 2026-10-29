@@ -34,7 +34,7 @@ await ddb.PutItemAsync("users", item);
 var out = await ddb.GetItemAsync("users", key);
 ```
 
-> **Status:** early development. Adapters for Go (AWS SDK for Go v2), JavaScript (AWS SDK for JavaScript v3), the JVM (AWS SDK for Java v2), .NET (AWS SDK for .NET v4), Python (boto3), and Ruby (AWS SDK for Ruby v3) run STS, SQS, DynamoDB, S3, SNS, EventBridge, Secrets Manager, SSM Parameter Store, and KMS; the Go adapter also covers IAM, CloudWatch, CloudWatch Logs, Kinesis, Data Firehose, and DynamoDB Streams. None is published yet.
+> **Status:** early development. The adapters for Go (AWS SDK for Go v2), JavaScript (AWS SDK for JavaScript v3), the JVM (AWS SDK for Java v2), .NET (AWS SDK for .NET v4), Python (boto3), and Ruby (AWS SDK for Ruby v3) are each tested through their SDK against all 15 emulated services: STS, SQS, DynamoDB, S3, SNS, EventBridge, Secrets Manager, SSM Parameter Store, KMS, IAM, CloudWatch, CloudWatch Logs, Kinesis, Data Firehose, and DynamoDB Streams. Go covers each service in depth; the other five run at least one end-to-end scenario per service (cross-service delivery for SNS, EventBridge, and Firehose). None is published yet.
 
 | Service | Coverage |
 | --- | --- |
@@ -50,7 +50,7 @@ var out = await ddb.GetItemAsync("users", key);
 | IAM | Users, groups, roles with trust policies, managed policies with versions and inline policies, attachments, permissions boundaries, access keys, login profiles and password policy, instance profiles, OIDC and SAML providers, MFA devices, SSH keys and certificates, credential report, account summary and aliases, SimulatePrincipalPolicy and SimulateCustomPolicy |
 | CloudWatch | PutMetricData, GetMetricStatistics and GetMetricData with period aggregation, percentiles, and metric math, ListMetrics, metric alarms evaluated per period, composite alarms, alarm history, dashboards, anomaly detectors, insight rules, metric streams; answers RPC v2 CBOR, awsJson, and awsQuery |
 | CloudWatch Logs | Log groups and streams, PutLogEvents, GetLogEvents and FilterLogEvents with term, regex, JSON, and space-delimited patterns, retention, metric filters, subscription filters, Insights queries (fields, filter, stats, sort, limit), export tasks, policies, deliveries |
-| Kinesis | Streams and shards, MD5 partition-key hashing, every shard iterator type, GetRecords, SplitShard, MergeShards, UpdateShardCount, enhanced fan-out consumers, tags, encryption, retention |
+| Kinesis | Streams and shards, MD5 partition-key hashing, every shard iterator type, GetRecords, SplitShard, MergeShards, UpdateShardCount, enhanced fan-out consumers, tags, encryption, retention; answers awsJson 1.1 and the `application/x-amz-cbor-1.1` body the AWS SDK for Java v2 sends |
 | Data Firehose | Delivery streams, PutRecord and PutRecordBatch written to the S3 destination (one object per batch, GZIP when configured), destination updates, tags, encryption |
 | DynamoDB Streams | INSERT, MODIFY, and REMOVE records for tables with a StreamSpecification in every view type, DescribeStream, ListStreams, shard iterators, GetRecords |
 
