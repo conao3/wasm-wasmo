@@ -1,6 +1,7 @@
 use crate::service::Service;
 
 pub mod dynamodb;
+pub mod events;
 mod pattern;
 pub mod s3;
 pub mod secretsmanager;
@@ -16,6 +17,7 @@ pub fn all() -> Vec<Box<dyn Service>> {
         Box::new(dynamodb::DynamoDb::default()),
         Box::new(s3::S3::default()),
         Box::new(sns::Sns::default()),
+        Box::new(events::Events::default()),
         Box::new(secretsmanager::SecretsManager::default()),
         Box::new(ssm::Ssm::default()),
     ]
