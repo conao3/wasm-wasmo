@@ -9,7 +9,7 @@ internal sealed class Handler(WasmoMock mock) : HttpMessageHandler
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
         var body = request.Content is null ? [] : await request.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
-        return Respond(request, body);
+        return Respond(request, await mock.ExchangeAsync(EncodeMeta(request), body, blocking: false).ConfigureAwait(false));
     }
 
     protected override HttpResponseMessage Send(HttpRequestMessage request, CancellationToken cancellationToken)
@@ -22,12 +22,11 @@ internal sealed class Handler(WasmoMock mock) : HttpMessageHandler
             stream.CopyTo(buffer);
             body = buffer.ToArray();
         }
-        return Respond(request, body);
+        return Respond(request, mock.ExchangeAsync(EncodeMeta(request), body, blocking: true).GetAwaiter().GetResult());
     }
 
-    private HttpResponseMessage Respond(HttpRequestMessage request, byte[] body)
+    private static HttpResponseMessage Respond(HttpRequestMessage request, byte[] frame)
     {
-        var frame = mock.Roundtrip(EncodeMeta(request), body);
         var metaLen = WasmoMock.MetaLength(frame);
         using var meta = JsonDocument.Parse(frame.AsMemory(4, metaLen));
         var root = meta.RootElement;

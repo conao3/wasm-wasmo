@@ -1,5 +1,7 @@
 using System.Buffers.Binary;
+using System.Collections.Concurrent;
 using System.Security.Cryptography;
+using System.Text.Json;
 using Amazon;
 using Amazon.Runtime;
 using Wasmtime;
@@ -24,12 +26,17 @@ public sealed class WasmoMock : IDisposable
 
     private static readonly Lazy<Runtime> SharedRuntime = new(Runtime.Load);
 
+    [ThreadStatic]
+    private static Queue<Invocation>? s_current;
+
     private readonly object _gate = new();
     private readonly Store _store;
     private readonly Memory _memory;
     private readonly Func<int, int> _alloc;
     private readonly Action<int, int> _free;
     private readonly Func<int, int, int, int, long> _handle;
+    private readonly Func<int, int, int, int, long> _complete;
+    private readonly ConcurrentDictionary<string, Func<string, FunctionContext, Task<string?>>> _functions = new();
     private readonly Handler _handler;
     private bool _disposed;
 
@@ -42,6 +49,7 @@ public sealed class WasmoMock : IDisposable
         _alloc = instance.GetFunction<int, int>("wasmo_alloc") ?? throw Missing("wasmo_alloc");
         _free = instance.GetAction<int, int>("wasmo_free") ?? throw Missing("wasmo_free");
         _handle = instance.GetFunction<int, int, int, int, long>("wasmo_handle") ?? throw Missing("wasmo_handle");
+        _complete = instance.GetFunction<int, int, int, int, long>("wasmo_complete") ?? throw Missing("wasmo_complete");
         _handler = new Handler(this);
     }
 
@@ -64,6 +72,22 @@ public sealed class WasmoMock : IDisposable
     /// <summary>An <see cref="HttpMessageHandler"/> that answers every request from this mock.</summary>
     public HttpMessageHandler Handler => _handler;
 
+    /// <summary>
+    /// Binds a handler to every invocation of the Lambda function named <paramref name="name"/>,
+    /// whatever code CreateFunction was given. The handler gets the event JSON and returns the
+    /// response JSON; an exception becomes a function error. It runs outside the mock's lock, so it
+    /// may call AWS through the same mock.
+    /// </summary>
+    public void RegisterFunction(string name, Func<string, FunctionContext, string?> handler)
+    {
+        ArgumentNullException.ThrowIfNull(handler);
+        _functions[name] = (e, c) => Task.FromResult(handler(e, c));
+    }
+
+    /// <inheritdoc cref="RegisterFunction(string, Func{string, FunctionContext, string})"/>
+    public void RegisterFunction(string name, Func<string, FunctionContext, Task<string?>> handler) =>
+        _functions[name] = handler;
+
     /// <summary>Releases the WebAssembly instance. Later requests throw.</summary>
     public void Dispose()
     {
@@ -78,14 +102,89 @@ public sealed class WasmoMock : IDisposable
         }
     }
 
-    internal byte[] Roundtrip(ReadOnlySpan<byte> meta, ReadOnlySpan<byte> body)
+    internal async Task<byte[]> ExchangeAsync(byte[] meta, byte[] body, bool blocking)
+    {
+        var pending = new Queue<Invocation>();
+        var frame = Call(_handle, pending, meta, body)!;
+        while (pending.TryDequeue(out var invocation))
+        {
+            var run = RunAsync(invocation);
+            var (resultMeta, payload) = blocking ? run.GetAwaiter().GetResult() : await run.ConfigureAwait(false);
+            frame = Call(_complete, pending, resultMeta, payload) ?? frame;
+        }
+        using var doc = JsonDocument.Parse(frame.AsMemory(4, MetaLength(frame)));
+        if (doc.RootElement.TryGetProperty("await", out var id))
+        {
+            throw new InvalidOperationException($"wasmo: invocation {id.GetString()} was never answered");
+        }
+        return frame;
+    }
+
+    private async Task<(byte[] Meta, byte[] Payload)> RunAsync(Invocation invocation)
+    {
+        using var doc = JsonDocument.Parse(invocation.Meta);
+        var meta = doc.RootElement;
+        var id = meta.GetProperty("id").GetString()!;
+        using var buffer = new MemoryStream();
+        using var json = new Utf8JsonWriter(buffer);
+        json.WriteStartObject();
+        json.WriteString("id", id);
+        byte[] payload = [];
+        if (!_functions.TryGetValue(meta.GetProperty("functionName").GetString()!, out var handler))
+        {
+            json.WriteBoolean("registered", false);
+        }
+        else
+        {
+            var context = new FunctionContext(meta);
+            try
+            {
+                var result = await handler(System.Text.Encoding.UTF8.GetString(invocation.Payload), context).ConfigureAwait(false);
+                payload = System.Text.Encoding.UTF8.GetBytes(result ?? "null");
+            }
+#pragma warning disable CA1031
+            catch (Exception e)
+#pragma warning restore CA1031
+            {
+                json.WriteStartObject("error");
+                json.WriteString("type", e.GetType().Name);
+                json.WriteString("message", e.Message);
+                json.WriteStartArray("stackTrace");
+                foreach (var line in (e.StackTrace ?? "").Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                {
+                    json.WriteStringValue(line);
+                }
+                json.WriteEndArray();
+                json.WriteEndObject();
+            }
+            json.WriteString("log", context.LogText());
+        }
+        json.WriteEndObject();
+        json.Flush();
+        return (buffer.ToArray(), payload);
+    }
+
+    private byte[]? Call(Func<int, int, int, int, long> fn, Queue<Invocation> pending, ReadOnlySpan<byte> meta, ReadOnlySpan<byte> body)
     {
         lock (_gate)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
             var metaPtr = Put(meta);
             var bodyPtr = Put(body);
-            var res = (ulong)_handle(metaPtr, meta.Length, bodyPtr, body.Length);
+            s_current = pending;
+            ulong res;
+            try
+            {
+                res = (ulong)fn(metaPtr, meta.Length, bodyPtr, body.Length);
+            }
+            finally
+            {
+                s_current = null;
+            }
+            if (res == 0)
+            {
+                return null;
+            }
             var ptr = (int)(res >> 32);
             var len = (int)(uint)res;
             var frame = _memory.GetSpan((uint)ptr, len).ToArray();
@@ -129,9 +228,19 @@ public sealed class WasmoMock : IDisposable
                 var memory = caller.GetMemory("memory") ?? throw Missing("memory");
                 RandomNumberGenerator.Fill(memory.GetSpan((uint)ptr, len));
             });
+            linker.DefineFunction("wasmo", "invoke", (Caller caller, int metaPtr, int metaLen, int payloadPtr, int payloadLen) =>
+            {
+                var memory = caller.GetMemory("memory") ?? throw Missing("memory");
+                var queue = s_current ?? throw new InvalidOperationException("wasmo: invoke outside a request");
+                queue.Enqueue(new Invocation(
+                    memory.GetSpan((uint)metaPtr, metaLen).ToArray(),
+                    memory.GetSpan((uint)payloadPtr, payloadLen).ToArray()));
+            });
             return new Runtime { Engine = engine, Module = module, Linker = linker };
         }
     }
+
+    private sealed record Invocation(byte[] Meta, byte[] Payload);
 
     private sealed class ClientFactory(Handler handler) : HttpClientFactory
     {
