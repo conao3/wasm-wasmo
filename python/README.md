@@ -68,3 +68,14 @@ aws.close()
 S3 works with virtual-hosted (`<bucket>.wasmo.local`, the default) and path-style addressing, `GetObject` returns a botocore `StreamingBody`, and `boto3.s3.transfer` multipart uploads and ranged downloads work as against AWS. Clients created with an `https://` endpoint send `aws-chunked` bodies with trailing checksums, which wasmo decodes.
 
 A `Mock` is safe to use from several threads; calls into one instance are serialized.
+
+Lambda functions created with `create_function` run handlers registered by name, on every invocation path (Invoke, SNS, EventBridge, S3 notifications, event source mappings, async destinations). A handler takes the decoded event and a `wasmo.FunctionContext` (`function_name`, `aws_request_id`, `environment`, `log()`, ...), returns a JSON-serializable value, and may call the same mock; an exception becomes a function error.
+
+```python
+def resize(event, context):
+    context.log(f"request {context.aws_request_id}")
+    return {"ok": True}
+
+
+aws.register_function("resize", resize)
+```

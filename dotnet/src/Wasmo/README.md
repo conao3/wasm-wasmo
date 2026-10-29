@@ -10,4 +10,4 @@ using var ddb = new AmazonDynamoDBClient(mock.Configure(new AmazonDynamoDBConfig
 
 `Configure` sets `ServiceURL`, `AuthenticationRegion` (`us-east-1`), dummy `DefaultAWSCredentials`, and an `HttpClientFactory` that answers every request from the mock. It works with any `ClientConfig` of the AWS SDK for .NET v4.
 
-Emulated services: STS, SQS, DynamoDB, S3, SNS, EventBridge, Secrets Manager, SSM Parameter Store, and KMS. See <https://github.com/conao3/wasm-wasmo>.
+Emulated services: STS, SQS, DynamoDB, S3, SNS, EventBridge, Secrets Manager, SSM Parameter Store, KMS, and Lambda. Lambda functions run handlers registered by name with `mock.RegisterFunction("name", (eventJson, context) => ...)` (sync or async), on every invocation path; an exception becomes a function error. See <https://github.com/conao3/wasm-wasmo>.

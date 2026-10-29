@@ -34,7 +34,7 @@ await ddb.PutItemAsync("users", item);
 var out = await ddb.GetItemAsync("users", key);
 ```
 
-> **Status:** early development. The adapters for Go (AWS SDK for Go v2), JavaScript (AWS SDK for JavaScript v3), the JVM (AWS SDK for Java v2), .NET (AWS SDK for .NET v4), Python (boto3), and Ruby (AWS SDK for Ruby v3) are each tested through their SDK against all 15 emulated services: STS, SQS, DynamoDB, S3, SNS, EventBridge, Secrets Manager, SSM Parameter Store, KMS, IAM, CloudWatch, CloudWatch Logs, Kinesis, Data Firehose, and DynamoDB Streams. Go covers each service in depth; the other five run at least one end-to-end scenario per service (cross-service delivery for SNS, EventBridge, and Firehose). None is published yet.
+> **Status:** early development. The adapters for Go (AWS SDK for Go v2), JavaScript (AWS SDK for JavaScript v3), the JVM (AWS SDK for Java v2), .NET (AWS SDK for .NET v4), Python (boto3), and Ruby (AWS SDK for Ruby v3) are each tested through their SDK against all 16 emulated services: STS, SQS, DynamoDB, S3, SNS, EventBridge, Secrets Manager, SSM Parameter Store, KMS, IAM, CloudWatch, CloudWatch Logs, Kinesis, Data Firehose, DynamoDB Streams, and Lambda, whose function handlers are registered in the test's own language. Go covers each service in depth; the other five run at least one end-to-end scenario per service (cross-service delivery for SNS, EventBridge, and Firehose). None is published yet.
 
 | Service | Coverage |
 | --- | --- |
@@ -53,8 +53,9 @@ var out = await ddb.GetItemAsync("users", key);
 | Kinesis | Streams and shards, MD5 partition-key hashing, every shard iterator type, GetRecords, SplitShard, MergeShards, UpdateShardCount, enhanced fan-out consumers, tags, encryption, retention; answers awsJson 1.1 and the `application/x-amz-cbor-1.1` body the AWS SDK for Java v2 sends |
 | Data Firehose | Delivery streams, PutRecord and PutRecordBatch written to the S3 destination (one object per batch, GZIP when configured), destination updates, tags, encryption |
 | DynamoDB Streams | INSERT, MODIFY, and REMOVE records for tables with a StreamSpecification in every view type, DescribeStream, ListStreams, shard iterators, GetRecords |
+| Lambda | Functions bound by name to handlers registered in the test's language, versions and aliases with weighted routing, Invoke (RequestResponse, Event, DryRun, `X-Amz-Function-Error`, LogType Tail, timeouts), InvokeAsync, retries and OnSuccess/OnFailure destinations and dead-letter queues for async invocations, reserved concurrency (0 throttles), permissions, event source mappings for SQS (batch size, filters, partial batch responses), Kinesis, and DynamoDB Streams (retries, OnFailure destinations), layers, function URLs, code signing configs, tags |
 
-Services deliver to each other inside a mock: SNS to SQS, EventBridge to SQS and SNS, S3 notifications to SQS, SNS, and EventBridge, CloudWatch Logs subscription filters to Kinesis, Firehose, and Logs destinations (gzipped `awslogs` payloads), Logs metric filters to CloudWatch, Firehose and Logs export tasks to S3, and CloudWatch alarm actions to SNS and EventBridge happen synchronously during the triggering call.
+Services deliver to each other inside a mock: SNS to SQS and Lambda, EventBridge to SQS, SNS, and Lambda, S3 notifications to SQS, SNS, EventBridge, and Lambda, CloudWatch Logs subscription filters to Kinesis, Firehose, Logs destinations, and Lambda (gzipped `awslogs` payloads), SQS, Kinesis, and DynamoDB Streams event source mappings to Lambda, Lambda async destinations to SQS, SNS, EventBridge, and Lambda, Logs metric filters to CloudWatch, Firehose and Logs export tasks to S3, and CloudWatch alarm actions to SNS and EventBridge happen synchronously during the triggering call.
 
 The protocol codecs (awsQuery, ec2, awsJson 1.0/1.1, rest-json, rest-xml, Smithy RPC v2 CBOR) are checked against botocore's protocol test suite; every case either passes or is listed in `crates/wasmo-core/tests/conformance-gaps.txt` as client-only behaviour.
 
@@ -71,7 +72,75 @@ your language's AWS SDK
             └─ wasmo.wasm (Rust, wasm32-unknown-unknown)
 ```
 
-The module needs no WASI. It imports two host functions (`wasmo.now_ms`, `wasmo.random_fill`) and exports three (`wasmo_alloc`, `wasmo_free`, `wasmo_handle`). A request is a JSON meta (method, URL, headers) plus raw body bytes; the response frame is a big-endian `u32` meta length, the meta JSON, then the body.
+The module needs no WASI. It imports three host functions and exports four:
+
+| | Signature | Contract |
+| --- | --- | --- |
+| import | `wasmo.now_ms() -> f64` | Wall-clock time in milliseconds |
+| import | `wasmo.random_fill(ptr, len)` | Fill the range with random bytes |
+| import | `wasmo.invoke(meta_ptr, meta_len, payload_ptr, payload_len)` | A Lambda invocation starts. The host copies both buffers (they stay owned by the module) and queues the invocation; it does not call back into the module here |
+| export | `wasmo_alloc(len) -> ptr`, `wasmo_free(ptr, len)` | Buffers passed in either direction |
+| export | `wasmo_handle(meta_ptr, meta_len, body_ptr, body_len) -> u64` | Takes ownership of both buffers and returns `(ptr << 32) \| len` of a response frame, which the host frees |
+| export | `wasmo_complete(meta_ptr, meta_len, payload_ptr, payload_len) -> u64` | Answers one queued invocation. Takes ownership of both buffers and returns 0, or the response frame of the request that waited for that invocation |
+
+A request is a JSON meta (`{method, url, headers}`) plus raw body bytes. A response frame is a big-endian `u32` meta length, the meta JSON, then the body. The meta is `{status, headers}`, or `{"await": "<invocation id>"}` when the response depends on a synchronous Invoke that is still queued.
+
+The invocation meta is a JSON object with `id`, `functionName`, `functionVersion`, `invokedFunctionArn`, `memoryLimitInMB`, `timeoutSeconds`, `deadlineMs`, `awsRequestId`, `logGroupName`, `logStreamName`, `invocationType`, `environment` (the function's variables plus `AWS_REGION`, `AWS_LAMBDA_FUNCTION_NAME`, and the other variables Lambda sets), `account`, `region`, and `clientContext` when the caller sent one; the payload is the event JSON. The completion meta is `{id, registered, error, log}`: `registered: false` when no handler is bound to the function name (the invocation fails with `Runtime.HandlerNotFound`), `error: {type, message, stackTrace}` when the handler failed (the payload is then ignored and the function error is `{"errorMessage", "errorType", "stackTrace"}`), and `log` for the lines the handler wrote; the completion payload is the handler's JSON response.
+
+After `wasmo_handle` returns, an adapter runs the queued invocations in order, outside its per-mock lock, and passes each result to `wasmo_complete`, which may queue more invocations (destinations, event source batches, retries); it repeats until the queue is empty and the frame no longer awaits. Handlers can therefore send requests to the same mock, and async handlers (JavaScript, .NET) are awaited between the two calls.
+
+
+## Lambda
+
+`CreateFunction` accepts any code (`ZipFile`, S3, or an image), but wasmo never runs it. Every invocation of a function, whether from `Invoke`, an alias or version, an SNS subscription, an EventBridge target, an S3 notification, a Logs subscription filter, an event source mapping, or an async destination, calls the handler registered under the function's name in the test's own language. The handler gets the event JSON and a context (function name and version, invoked ARN, request id, memory, deadline, log group and stream, and the environment variables of the invoked version) and returns the response JSON; an error becomes a function error (`X-Amz-Function-Error: Unhandled` with `errorType`/`errorMessage`), and an invocation of a function with no registered handler fails with `Runtime.HandlerNotFound`. Lines written with the context's log method appear in `LogType: Tail` results. Handlers run outside the mock's lock, so they can call AWS through the same mock.
+
+```go
+m.RegisterFunction("resize", func(ctx context.Context, event json.RawMessage) (json.RawMessage, error) {
+	fc, _ := wasmo.FunctionContextFrom(ctx)
+	fc.Logf("bucket %s", fc.Environment["BUCKET"])
+	return json.RawMessage(`{"ok":true}`), nil
+})
+```
+
+```ts
+aws.registerFunction("resize", async (event, context) => {
+  context.log("bucket", context.environment.BUCKET);
+  return { ok: true };
+});
+```
+
+```java
+mock.registerFunction("resize", (event, context) -> {
+    context.log("bucket " + context.getEnvironment().get("BUCKET"));
+    return "{\"ok\":true}";
+});
+```
+
+```csharp
+mock.RegisterFunction("resize", async (eventJson, context) =>
+{
+    context.Log($"bucket {context.Environment["BUCKET"]}");
+    return "{\"ok\":true}";
+});
+```
+
+```python
+def resize(event, context):
+    context.log(f"bucket {context.environment['BUCKET']}")
+    return {"ok": True}
+
+
+aws.register_function("resize", resize)
+```
+
+```ruby
+aws.register_function("resize") do |event, context|
+  context.log("bucket #{context.environment["BUCKET"]}")
+  { "ok" => true }
+end
+```
+
+Event invocations retry a failed handler up to `MaximumRetryAttempts` (2 by default) and then deliver the invocation record to the OnFailure destination and the function's dead-letter queue; successes go to the OnSuccess destination. SQS event source mappings consume the queue after every request, in batches of `BatchSize`, delete the messages a batch handled (all of them, or all but the `batchItemFailures` with `ReportBatchItemFailures`), and drop messages that no `FilterCriteria` pattern matches. Kinesis and DynamoDB Streams mappings read every shard from `StartingPosition`, and retry a failed batch on the next request up to `MaximumRetryAttempts` before sending it to the OnFailure destination.
 
 ## JavaScript / TypeScript
 

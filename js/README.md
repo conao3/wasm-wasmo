@@ -74,6 +74,19 @@ test("rejects a duplicate", async () => {
 
 Jest: the package is ESM, so run Jest in ESM mode (`NODE_OPTIONS=--experimental-vm-modules npx jest`). The test body is the same as with Vitest, using Jest's globals.
 
+## Lambda
+
+Functions created with `CreateFunction` run handlers registered by name; every invocation path (Invoke, SNS, EventBridge, S3 notifications, event source mappings, async destinations) calls them. Handlers may be async and may call the same mock.
+
+```ts
+aws.registerFunction("resize", async (event, context) => {
+  context.log("request", context.awsRequestId);
+  return { ok: true, table: context.environment.TABLE };
+});
+```
+
+A thrown error becomes a function error (`FunctionError: "Unhandled"`, `errorType` from the error's `name`).
+
 ## License
 
 Apache-2.0. See `LICENSE` and `NOTICE`.

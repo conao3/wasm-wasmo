@@ -22,6 +22,8 @@ end
 
 Requests go through the SDK's own signing, retries, checksums, and response parsing; only Net::HTTP is replaced. Each `Wasmo::Mock` owns an isolated WebAssembly instance and serializes calls into it, so one mock can be shared across threads and separate mocks never share state. Clients get `region` `us-east-1`, `endpoint` `http://wasmo.local`, and dummy credentials; S3 works with both virtual-hosted and path-style (`force_path_style: true`) addressing. `aws.request(method, url, headers, body)` sends a raw HTTP request, e.g. to fetch a presigned URL.
 
+Lambda functions created with `create_function` run blocks registered by name, on every invocation path (Invoke, SNS, EventBridge, S3 notifications, event source mappings, async destinations): `aws.register_function("resize") { |event, context| { "ok" => true } }`. The block gets the decoded event and a `Wasmo::FunctionContext` (`function_name`, `aws_request_id`, `environment`, `log`, ...), returns a JSON-serializable value, and may call the same mock; an exception becomes a function error.
+
 The compiled module is cached in `Gem.cache_home/wasmo` (`~/.cache/wasmo`), so only the first run after an upgrade pays for compilation.
 
 Ruby 3.2+. wasmtime-rb ships precompiled native gems for Ruby 3.3+ on Linux and macOS; elsewhere Bundler builds it from source with a Rust toolchain.
