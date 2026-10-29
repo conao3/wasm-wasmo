@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { GetQueueAttributesCommand, type SQSClient } from "@aws-sdk/client-sqs";
 
 export function md5(data: Uint8Array | string): string {
   return createHash("md5").update(data).digest("hex");
@@ -23,4 +24,11 @@ export async function median(n: number, f: () => Promise<unknown>): Promise<numb
 
 export function micros(ms: number): string {
   return `${(ms * 1000).toFixed(0)}us`;
+}
+
+export async function queueArn(sqs: SQSClient, QueueUrl: string): Promise<string> {
+  const out = await sqs.send(
+    new GetQueueAttributesCommand({ QueueUrl, AttributeNames: ["QueueArn"] }),
+  );
+  return out.Attributes!.QueueArn!;
 }
