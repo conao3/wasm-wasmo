@@ -327,10 +327,10 @@ pub fn put_policy(region: &mut Region, ctx: &mut Ctx<'_>, input: &Value) -> OpRe
     {
         return Ok(json!({ "RevisionId": rev }));
     }
-    let rev = format!(
-        "{}",
-        ctx.now_ms() as u64 * 1000 + region.policies.len() as u64
-    );
+    let previous = existing.and_then(|p| p.1.parse::<u64>().ok());
+    let rev = (ctx.now_ms() as u64 * 1000)
+        .max(previous.map_or(0, |p| p + 1))
+        .to_string();
     region.policies.insert(arn, (policy, rev.clone()));
     Ok(json!({ "RevisionId": rev }))
 }
