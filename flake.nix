@@ -41,6 +41,8 @@
             packages = [
               rust
               pkgs.go
+              pkgs.nodejs
+              pkgs.bun
               pkgs.wabt
               pkgs.gnumake
               pkgs.jq

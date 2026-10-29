@@ -17,7 +17,8 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             ~/go/pkg/mod
+            ~/.npm
             target
-          key: ${{ runner.os }}-${{ hashFiles('Cargo.lock', 'go/go.sum', 'flake.lock') }}
+          key: ${{ runner.os }}-${{ hashFiles('Cargo.lock', 'go/go.sum', 'js/package-lock.json', 'flake.lock') }}
       - run: nix develop --command make lint
       - run: nix develop --command make test
