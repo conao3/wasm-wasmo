@@ -10,6 +10,6 @@ pub fn all() -> Vec<Box<dyn Service>> {
         Box::new(sts::Sts),
         Box::new(sqs::Sqs::default()),
         Box::new(dynamodb::DynamoDb),
-        Box::new(s3::S3),
+        Box::new(s3::S3::default()),
     ]
 }
