@@ -1,5 +1,6 @@
 use crate::service::Service;
 
+pub mod cloudwatch;
 pub mod dynamodb;
 pub mod events;
 pub mod firehose;
@@ -30,6 +31,7 @@ pub fn all() -> Vec<Box<dyn Service>> {
         Box::new(kinesis::Kinesis::default()),
         Box::new(firehose::Firehose::default()),
         Box::new(logs::Logs::default()),
+        Box::new(cloudwatch::CloudWatch::default()),
     ]
 }
 

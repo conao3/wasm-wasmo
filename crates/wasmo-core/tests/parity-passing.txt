@@ -33,6 +33,9 @@ logs/create-log-group-error
 logs/get-log-events-identifier
 logs/log-events
 logs/log-tags
+monitoring/alarm-error
+monitoring/alarm-lifecycle
+monitoring/metric-statistics
 s3/copy-object-metadata-replace
 s3/copy-object-no-such-key
 s3/copy-object-self-error

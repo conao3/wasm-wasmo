@@ -10,6 +10,7 @@ pub mod wire;
 pub mod xml;
 
 use std::collections::VecDeque;
+use std::io::Read;
 
 use serde_json::Value;
 
@@ -71,8 +72,12 @@ impl<E: Env> Emulator<E> {
             .then(|| route::virtual_host_bucket(&host))
             .flatten()
             .map(|(bucket, base)| (bucket.to_string(), base.to_string()));
+        let gzipped = !service.virtual_hosted()
+            && req
+                .header("content-encoding")
+                .is_some_and(|e| e.split(',').any(|x| x.trim() == "gzip"));
         let mut normalized = None;
-        if vhost.is_some() || chunked::is_chunked(req) {
+        if vhost.is_some() || chunked::is_chunked(req) || gzipped {
             let mut r = req.clone();
             if let Some((bucket, base)) = vhost {
                 r.path = if r.path == "/" {
@@ -89,6 +94,19 @@ impl<E: Env> Emulator<E> {
             && let Err(e) = chunked::unwrap(r)
         {
             chunk_error = Some(AwsError::new(400, "IncompleteBody", e));
+        }
+        if let Some(r) = normalized.as_mut().filter(|_| gzipped) {
+            let mut plain = Vec::new();
+            match flate2::read::MultiGzDecoder::new(r.body.as_slice()).read_to_end(&mut plain) {
+                Ok(_) => r.body = plain,
+                Err(e) => {
+                    chunk_error = Some(AwsError::new(
+                        400,
+                        "SerializationException",
+                        format!("gzip body: {e}"),
+                    ))
+                }
+            }
         }
         let req = normalized.as_ref().unwrap_or(req);
         let protocol = request_protocol(model, req);
