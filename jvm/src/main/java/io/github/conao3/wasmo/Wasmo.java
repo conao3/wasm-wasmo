@@ -15,10 +15,13 @@ import java.net.URI;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
@@ -47,6 +50,9 @@ public final class Wasmo implements SdkHttpClient {
     private final ExportFunction alloc;
     private final ExportFunction free;
     private final ExportFunction handle;
+    private final ExportFunction complete;
+    private final Map<String, FunctionHandler> functions = new ConcurrentHashMap<>();
+    private Deque<byte[][]> current;
     private boolean closed;
 
     private Wasmo() {
@@ -59,6 +65,7 @@ public final class Wasmo implements SdkHttpClient {
         alloc = instance.export("wasmo_alloc");
         free = instance.export("wasmo_free");
         handle = instance.export("wasmo_handle");
+        complete = instance.export("wasmo_complete");
     }
 
     /** Starts a mock with empty state. */
@@ -66,7 +73,7 @@ public final class Wasmo implements SdkHttpClient {
         return new Wasmo();
     }
 
-    private static ImportValues imports() {
+    private ImportValues imports() {
         var nowMs =
                 new HostFunction(
                         "wasmo",
@@ -87,7 +94,34 @@ public final class Wasmo implements SdkHttpClient {
                             inst.memory().write((int) args[0], buf);
                             return null;
                         });
-        return ImportValues.builder().addFunction(nowMs, randomFill).build();
+        var invoke =
+                new HostFunction(
+                        "wasmo",
+                        "invoke",
+                        FunctionType.of(
+                                List.of(ValType.I32, ValType.I32, ValType.I32, ValType.I32),
+                                List.of()),
+                        (inst, args) -> {
+                            if (current == null) {
+                                throw new IllegalStateException("wasmo: invoke outside a request");
+                            }
+                            current.add(
+                                    new byte[][] {
+                                        inst.memory().readBytes((int) args[0], (int) args[1]),
+                                        inst.memory().readBytes((int) args[2], (int) args[3])
+                                    });
+                            return null;
+                        });
+        return ImportValues.builder().addFunction(nowMs, randomFill, invoke).build();
+    }
+
+    /**
+     * Binds a handler to every invocation of the Lambda function with this name, whatever code
+     * CreateFunction was given. The handler runs outside the mock's lock, so it may call AWS
+     * through the same mock.
+     */
+    public void registerFunction(String name, FunctionHandler handler) {
+        functions.put(name, handler);
     }
 
     public URI endpoint() {
@@ -136,11 +170,23 @@ public final class Wasmo implements SdkHttpClient {
             body = new byte[0];
         }
         var meta = encodeMeta(http).getBytes(StandardCharsets.UTF_8);
-        var frame = roundtrip(meta, body);
+        var pending = new ArrayDeque<byte[][]>();
+        var frame = roundtrip(handle, pending, meta, body);
+        while (!pending.isEmpty()) {
+            var result = run(pending.poll());
+            var answer = roundtrip(complete, pending, result[0], result[1]);
+            if (answer != null) {
+                frame = answer;
+            }
+        }
 
         var buf = ByteBuffer.wrap(frame);
         int metaLen = buf.getInt();
         var res = Json.parseObject(new String(frame, 4, metaLen, StandardCharsets.UTF_8));
+        if (res.containsKey("await")) {
+            throw new IllegalStateException(
+                    "wasmo: invocation " + res.get("await") + " was never answered");
+        }
         var response =
                 SdkHttpResponse.builder().statusCode(((Number) res.get("status")).intValue());
         for (var kv : (List<?>) res.get("headers")) {
@@ -185,13 +231,59 @@ public final class Wasmo implements SdkHttpClient {
         return sb.append("]}").toString();
     }
 
-    private synchronized byte[] roundtrip(byte[] meta, byte[] body) {
+    private byte[][] run(byte[][] invocation) {
+        var meta = Json.parseObject(new String(invocation[0], StandardCharsets.UTF_8));
+        var out = new StringBuilder("{\"id\":");
+        Json.quote(out, (String) meta.get("id"));
+        var handler = functions.get((String) meta.get("functionName"));
+        if (handler == null) {
+            return new byte[][] {
+                out.append(",\"registered\":false}").toString().getBytes(StandardCharsets.UTF_8),
+                new byte[0]
+            };
+        }
+        var context = new FunctionContext(meta);
+        var payload = new byte[0];
+        try {
+            var result = handler.handle(new String(invocation[1], StandardCharsets.UTF_8), context);
+            payload = (result == null ? "null" : result).getBytes(StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            out.append(",\"error\":{\"type\":");
+            Json.quote(out, e.getClass().getName());
+            out.append(",\"message\":");
+            Json.quote(out, String.valueOf(e.getMessage()));
+            out.append(",\"stackTrace\":[");
+            var trace = e.getStackTrace();
+            for (int i = 0; i < trace.length; i++) {
+                if (i > 0) {
+                    out.append(',');
+                }
+                Json.quote(out, trace[i].toString());
+            }
+            out.append("]}");
+        }
+        out.append(",\"log\":");
+        Json.quote(out, context.logText());
+        return new byte[][] {out.append('}').toString().getBytes(StandardCharsets.UTF_8), payload};
+    }
+
+    private synchronized byte[] roundtrip(
+            ExportFunction fn, Deque<byte[][]> pending, byte[] meta, byte[] body) {
         if (closed) {
             throw new IllegalStateException("wasmo: instance is closed");
         }
         int metaPtr = put(meta);
         int bodyPtr = put(body);
-        long res = handle.apply(metaPtr, meta.length, bodyPtr, body.length)[0];
+        current = pending;
+        long res;
+        try {
+            res = fn.apply(metaPtr, meta.length, bodyPtr, body.length)[0];
+        } finally {
+            current = null;
+        }
+        if (res == 0) {
+            return null;
+        }
         int ptr = (int) (res >>> 32);
         int len = (int) res;
         var frame = memory.readBytes(ptr, len);
