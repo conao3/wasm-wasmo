@@ -467,7 +467,7 @@ func TestSSMTagsAndDelete(t *testing.T) {
 		t.Fatal(err)
 	}
 	tags, err := client.ListTagsForResource(ctx, ref)
-	if err != nil || len(tags.TagList) != 2 || aws.ToString(tags.TagList[0].Key) != "a" || aws.ToString(tags.TagList[1].Value) != "3" {
+	if err != nil || len(tags.TagList) != 2 || aws.ToString(tags.TagList[0].Key) != "b" || aws.ToString(tags.TagList[0].Value) != "3" || aws.ToString(tags.TagList[1].Key) != "a" {
 		t.Fatalf("tags = %+v, %v", tags, err)
 	}
 	if _, err := client.RemoveTagsFromResource(ctx, &ssm.RemoveTagsFromResourceInput{ResourceType: types.ResourceTypeForTaggingParameter, ResourceId: aws.String("/t/one"), TagKeys: []string{"a"}}); err != nil {

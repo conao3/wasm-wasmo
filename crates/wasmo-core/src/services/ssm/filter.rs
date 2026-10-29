@@ -297,7 +297,6 @@ pub(crate) fn describe(region: &mut Region, ctx: &mut Ctx<'_>, input: &Value) ->
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
 
     use super::*;
     use crate::services::ssm::Version;
@@ -322,7 +321,7 @@ mod tests {
             tags: tags
                 .iter()
                 .map(|(k, v)| (k.to_string(), v.to_string()))
-                .collect::<BTreeMap<_, _>>(),
+                .collect::<indexmap::IndexMap<_, _>>(),
         }
     }
 

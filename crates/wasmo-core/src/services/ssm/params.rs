@@ -1,5 +1,3 @@
-use std::collections::BTreeMap;
-
 use serde_json::{Value, json};
 
 use super::pattern::Pattern;
@@ -194,7 +192,7 @@ pub(crate) fn get_many(region: &mut Region, ctx: &mut Ctx<'_>, input: &Value) ->
     Ok(json!({ "Parameters": found, "InvalidParameters": invalid }))
 }
 
-fn tag_list(input: &Value) -> Result<BTreeMap<String, String>, AwsError> {
+fn tag_list(input: &Value) -> Result<indexmap::IndexMap<String, String>, AwsError> {
     input
         .array_field("Tags")
         .iter()
@@ -705,7 +703,7 @@ mod tests {
                 Parameter {
                     name: name.into(),
                     versions: Vec::new(),
-                    tags: BTreeMap::new(),
+                    tags: indexmap::IndexMap::new(),
                 },
             );
         }

@@ -75,7 +75,7 @@ pub(crate) fn add(region: &mut Region, input: &Value) -> OpResult {
 pub(crate) fn remove(region: &mut Region, input: &Value) -> OpResult {
     let param = resource(region, input)?;
     for key in strings(input, "TagKeys") {
-        param.tags.remove(&key);
+        param.tags.shift_remove(&key);
     }
     Ok(json!({}))
 }

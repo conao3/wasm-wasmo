@@ -767,9 +767,9 @@ fn subscribe(ctx: &mut Ctx<'_>, region: &mut Region, input: &Value) -> OpResult 
             "Invalid parameter: Amazon SNS does not support this protocol string",
         ));
     }
+    let topic = region.topic(topic_arn)?;
     let endpoint = input.str_field("Endpoint").unwrap_or_default().to_string();
     validate_endpoint(&protocol, &endpoint)?;
-    let topic = region.topic(topic_arn)?;
     let fifo = topic.is_fifo();
     let attributes = string_map(input.obj_field("Attributes"));
     for (k, v) in &attributes {

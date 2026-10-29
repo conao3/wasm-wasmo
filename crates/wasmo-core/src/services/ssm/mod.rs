@@ -35,7 +35,7 @@ pub(crate) struct Version {
 pub(crate) struct Parameter {
     pub name: String,
     pub versions: Vec<Version>,
-    pub tags: BTreeMap<String, String>,
+    pub tags: indexmap::IndexMap<String, String>,
 }
 
 impl Parameter {
