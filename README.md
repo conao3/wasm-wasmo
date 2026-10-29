@@ -188,7 +188,7 @@ sqs = aws.client("sqs")
 aws.close()
 ```
 
-Inside `mock_aws()`, clients default to the endpoint `http://wasmo.local`, region `us-east-1`, and dummy credentials. `aws.fetch(url)` sends a raw request such as a presigned URL (SigV4) to the mock. See `python/README.md` for details.
+Inside `mock_aws()`, clients default to the endpoint `http://wasmo.local`, region `us-east-1`, and dummy credentials. `aws.fetch(url)` sends a raw request such as a presigned URL to the mock. See `python/README.md` for details.
 
 ## Layout
 

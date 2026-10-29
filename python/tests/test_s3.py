@@ -109,3 +109,13 @@ def test_errors(aws):
     with pytest.raises(s3.exceptions.ClientError) as err:
         s3.head_object(Bucket="present", Key="absent")
     assert err.value.response["Error"]["Code"] == "404"
+
+
+def test_presigned_get_with_the_default_signature(aws):
+    s3 = boto3.client("s3")
+    s3.create_bucket(Bucket="legacy")
+    s3.put_object(Bucket="legacy", Key="a.txt", Body=b"sigv2 body")
+    url = s3.generate_presigned_url("get_object", Params={"Bucket": "legacy", "Key": "a.txt"})
+    res = aws.fetch(url)
+    assert res.status == 200
+    assert res.body == b"sigv2 body"

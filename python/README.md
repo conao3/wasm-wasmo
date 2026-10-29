@@ -63,7 +63,7 @@ session = aws.session()  # a boto3.Session bound to this mock
 aws.close()
 ```
 
-`aws.fetch(url, method="GET", headers=None, body=b"")` sends a raw HTTP request to the mock and returns a `Response(status, headers, body)`, for example to fetch a presigned URL. Presign with SigV4 (`Config(signature_version="s3v4")`); botocore's default S3 presigned URL uses SigV2, which wasmo does not route.
+`aws.fetch(url, method="GET", headers=None, body=b"")` sends a raw HTTP request to the mock and returns a `Response(status, headers, body)`, for example to fetch a presigned URL.
 
 S3 works with virtual-hosted (`<bucket>.wasmo.local`, the default) and path-style addressing, `GetObject` returns a botocore `StreamingBody`, and `boto3.s3.transfer` multipart uploads and ranged downloads work as against AWS. Clients created with an `https://` endpoint send `aws-chunked` bodies with trailing checksums, which wasmo decodes.
 

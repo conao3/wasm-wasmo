@@ -25,7 +25,8 @@ impl Route {
                     .into_iter()
                     .find(|(k, _)| k == "X-Amz-Credential")
                     .and_then(|(_, c)| credential_scope(&c))
-            });
+            })
+            .or_else(|| is_sigv2(req).then(|| (DEFAULT_REGION.to_string(), "s3".to_string())));
         let target = req.header("x-amz-target").map(str::to_string);
         let service = scope.as_ref().map(|(_, service)| service.clone());
         Self {
@@ -35,6 +36,16 @@ impl Route {
             target,
         }
     }
+}
+
+/// SigV2 (presigned `AWSAccessKeyId` + `Signature`, or `Authorization: AWS key:sig`)
+/// is only used by S3.
+fn is_sigv2(req: &Request) -> bool {
+    req.header("authorization")
+        .is_some_and(|a| a.starts_with("AWS "))
+        || parse_query(&req.query)
+            .iter()
+            .any(|(k, _)| k == "AWSAccessKeyId")
 }
 
 fn credential_scope(credential: &str) -> Option<(String, String)> {
