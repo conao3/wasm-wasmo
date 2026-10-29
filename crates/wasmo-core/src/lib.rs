@@ -9,6 +9,8 @@ pub mod services;
 pub mod wire;
 pub mod xml;
 
+use std::collections::VecDeque;
+
 use serde_json::Value;
 
 use codec::rest::{BodyFormat, HttpRequest};
@@ -16,8 +18,10 @@ use codec::{AwsError, json, query as query_codec, rest};
 use env::Env;
 use model::{Operation, Shape};
 use route::Route;
-use service::{Ctx, Service, ServiceModel};
+use service::{Arn, Ctx, Delivery, Service, ServiceModel};
 use wire::{Request, Response};
+
+const MAX_DELIVERY_HOPS: usize = 256;
 
 pub struct Emulator<E: Env> {
     env: E,
@@ -74,20 +78,22 @@ impl<E: Env> Emulator<E> {
         }
         let req = normalized.as_ref().unwrap_or(req);
         let op = service.resolve(req).or_else(|| resolve(model, req));
+        let mut outbox = Vec::new();
         let mut res = match (op, chunk_error) {
             (Some(op), Some(error)) => serialize_error(model, Some(op), &error, &request_id),
             (Some(op), None) => {
-                let mut ctx = Ctx {
-                    account: route.account.clone(),
-                    region: route.region.clone(),
-                    endpoint: format!("http://{host}"),
-                    security_token: req.header("x-amz-security-token").map(str::to_string),
-                    env: &mut self.env,
-                };
+                let mut ctx = Ctx::new(
+                    route.account.clone(),
+                    route.region.clone(),
+                    format!("http://{host}"),
+                    &mut self.env,
+                );
+                ctx.security_token = req.header("x-amz-security-token").map(str::to_string);
                 let result = parse_input(model, op, req)
                     .and_then(|input| service.call(&mut ctx, &op.name, input));
                 match result {
                     Ok(output) => {
+                        outbox = std::mem::take(&mut ctx.outbox);
                         let mut res = serialize_output(model, op, &output, &request_id);
                         service.finish(&op.name, &output, &mut res);
                         res
@@ -108,6 +114,7 @@ impl<E: Env> Emulator<E> {
                 )
             }
         };
+        self.route(outbox, &format!("http://{host}"));
         if req.method.eq_ignore_ascii_case("HEAD") || res.status == 304 {
             res.body.clear();
         }
@@ -118,6 +125,36 @@ impl<E: Env> Emulator<E> {
                 .push(("x-amz-request-id".to_string(), request_id));
         }
         res
+    }
+
+    /// Routes deliveries to the services owning the target ARNs, following the
+    /// deliveries those services emit in turn.
+    fn route(&mut self, outbox: Vec<Delivery>, endpoint: &str) {
+        let mut queue: VecDeque<Delivery> = outbox.into();
+        let mut hops = 0;
+        while let Some(d) = queue.pop_front() {
+            hops += 1;
+            if hops > MAX_DELIVERY_HOPS {
+                break;
+            }
+            let Some(arn) = Arn::parse(&d.target) else {
+                continue;
+            };
+            let mut ctx = Ctx::new(arn.account, arn.region, endpoint, &mut self.env);
+            let delivered = self
+                .services
+                .iter_mut()
+                .find(|s| s.signing_name() == arn.service)
+                .is_some_and(|s| s.deliver(&mut ctx, arn.resource, &d));
+            queue.extend(ctx.outbox);
+            if !delivered && let Some(dlq) = d.dead_letter.clone() {
+                queue.push_back(Delivery {
+                    target: dlq,
+                    dead_letter: None,
+                    ..d
+                });
+            }
+        }
     }
 }
 

@@ -78,6 +78,44 @@ impl ServiceModel {
     }
 }
 
+/// A message bound for another resource, routed by the dispatcher after the
+/// triggering call succeeds.
+#[derive(Debug, Clone, Default)]
+pub struct Delivery {
+    pub target: String,
+    pub source: String,
+    pub body: String,
+    pub subject: Option<String>,
+    /// SQS/SNS-style attributes: `{name: {DataType, StringValue | BinaryValue}}`.
+    pub attributes: Map<String, Value>,
+    pub group_id: Option<String>,
+    pub dedup_id: Option<String>,
+    /// Where the delivery goes when the target does not accept it.
+    pub dead_letter: Option<String>,
+}
+
+pub struct Arn<'a> {
+    pub partition: &'a str,
+    pub service: &'a str,
+    pub region: &'a str,
+    pub account: &'a str,
+    pub resource: &'a str,
+}
+
+impl<'a> Arn<'a> {
+    pub fn parse(arn: &'a str) -> Option<Self> {
+        let mut parts = arn.splitn(6, ':');
+        (parts.next()? == "arn").then_some(())?;
+        Some(Self {
+            partition: parts.next()?,
+            service: parts.next()?,
+            region: parts.next()?,
+            account: parts.next()?,
+            resource: parts.next()?,
+        })
+    }
+}
+
 pub struct Ctx<'a> {
     pub account: String,
     pub region: String,
@@ -86,9 +124,40 @@ pub struct Ctx<'a> {
     /// `X-Amz-Security-Token` the request was signed with.
     pub security_token: Option<String>,
     pub env: &'a mut dyn Env,
+    pub outbox: Vec<Delivery>,
 }
 
-impl Ctx<'_> {
+impl<'a> Ctx<'a> {
+    pub fn new(
+        account: impl Into<String>,
+        region: impl Into<String>,
+        endpoint: impl Into<String>,
+        env: &'a mut dyn Env,
+    ) -> Self {
+        Self {
+            account: account.into(),
+            region: region.into(),
+            endpoint: endpoint.into(),
+            security_token: None,
+            env,
+            outbox: Vec::new(),
+        }
+    }
+
+    pub fn deliver(&mut self, delivery: Delivery) {
+        self.outbox.push(delivery);
+    }
+
+    pub fn random_bytes(&mut self, buf: &mut [u8]) {
+        self.env.random_fill(buf);
+    }
+
+    pub fn arn(&self, service: &str, resource: &str) -> String {
+        format!(
+            "arn:aws:{service}:{}:{}:{resource}",
+            self.region, self.account
+        )
+    }
     pub fn now_ms(&self) -> f64 {
         self.env.now_ms()
     }
@@ -130,6 +199,12 @@ pub trait Service {
 
     /// Adjusts a serialized successful response.
     fn finish(&self, _operation: &str, _output: &Value, _res: &mut Response) {}
+
+    /// Accepts a delivery addressed to one of this service's resources (the ARN
+    /// resource part). Returns false when the target does not exist or refuses it.
+    fn deliver(&mut self, _ctx: &mut Ctx<'_>, _resource: &str, _delivery: &Delivery) -> bool {
+        false
+    }
 }
 
 /// Accessors for operation input.

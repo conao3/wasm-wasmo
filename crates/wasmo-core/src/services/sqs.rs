@@ -8,7 +8,7 @@ use sha2::Sha256;
 
 use crate::codec::AwsError;
 use crate::embedded_model;
-use crate::service::{Ctx, InputExt, OpResult, Service, ServiceModel};
+use crate::service::{Ctx, Delivery, InputExt, OpResult, Service, ServiceModel};
 
 const DEDUP_WINDOW_MS: f64 = 5.0 * 60.0 * 1000.0;
 
@@ -526,6 +526,27 @@ impl Service for Sqs {
 
     fn model(&self) -> &'static ServiceModel {
         embedded_model!("sqs")
+    }
+
+    fn deliver(&mut self, ctx: &mut Ctx<'_>, resource: &str, delivery: &Delivery) -> bool {
+        let Some(queue) = self
+            .regions
+            .get_mut(&(ctx.account.clone(), ctx.region.clone()))
+            .and_then(|r| r.queues.get_mut(resource))
+        else {
+            return false;
+        };
+        let mut entry = json!({ "MessageBody": delivery.body });
+        if !delivery.attributes.is_empty() {
+            entry["MessageAttributes"] = Value::Object(delivery.attributes.clone());
+        }
+        if let Some(g) = &delivery.group_id {
+            entry["MessageGroupId"] = json!(g);
+        }
+        if let Some(d) = &delivery.dedup_id {
+            entry["MessageDeduplicationId"] = json!(d);
+        }
+        send_one(ctx, queue, &entry).is_ok()
     }
 
     fn call(&mut self, ctx: &mut Ctx<'_>, operation: &str, input: Value) -> OpResult {

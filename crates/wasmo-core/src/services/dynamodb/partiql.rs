@@ -773,13 +773,8 @@ mod tests {
             now_ms: 0.0,
             seed: 7,
         };
-        let mut ctx = crate::service::Ctx {
-            account: "000000000000".into(),
-            region: "us-east-1".into(),
-            endpoint: "http://wasmo.local".into(),
-            security_token: None,
-            env: &mut env,
-        };
+        let mut ctx =
+            crate::service::Ctx::new("000000000000", "us-east-1", "http://wasmo.local", &mut env);
         crate::services::dynamodb::table::create(
             &mut r,
             &mut ctx,

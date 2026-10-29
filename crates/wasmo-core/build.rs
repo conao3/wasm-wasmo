@@ -3,7 +3,17 @@ use std::path::PathBuf;
 
 use serde_json::Value;
 
-const MODELS: &[&str] = &["sts", "sqs", "dynamodb", "s3"];
+const MODELS: &[&str] = &[
+    "sts",
+    "sqs",
+    "dynamodb",
+    "s3",
+    "sns",
+    "events",
+    "secretsmanager",
+    "ssm",
+    "kms",
+];
 const STRIPPED_KEYS: &[&str] = &[
     "documentation",
     "documentationUrl",
