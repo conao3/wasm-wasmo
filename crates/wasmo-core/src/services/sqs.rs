@@ -431,7 +431,7 @@ fn receive(
         .unwrap_or_else(|| queue.int_attr("VisibilityTimeout", 30));
     let redrive = queue.redrive();
     let fifo = queue.is_fifo();
-    let mut locked: std::collections::HashSet<String> = if fifo {
+    let locked: std::collections::HashSet<String> = if fifo {
         queue
             .messages
             .iter()
@@ -466,11 +466,6 @@ fn receive(
         m.receive_count += 1;
         m.first_received_at.get_or_insert(now);
         m.receipt_handle = ctx.uuid();
-        if let Some(g) = &m.group_id
-            && fifo
-        {
-            locked.insert(g.clone());
-        }
         selected.push(m.clone());
         remaining.push(m);
     }

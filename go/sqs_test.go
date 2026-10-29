@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -193,4 +194,30 @@ func mustQueue(t *testing.T, client *sqs.Client, name string, attrs map[string]s
 		t.Fatal(err)
 	}
 	return out.QueueUrl
+}
+
+func TestSQSFifoGroupOrder(t *testing.T) {
+	ctx := context.Background()
+	client := sqs.NewFromConfig(newMock(t).Config())
+	url := mustQueue(t, client, "steps.fifo", map[string]string{"FifoQueue": "true", "ContentBasedDeduplication": "true"})
+	for _, body := range []string{"1", "2", "3"} {
+		if _, err := client.SendMessage(ctx, &sqs.SendMessageInput{QueueUrl: url, MessageBody: aws.String(body), MessageGroupId: aws.String("g")}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := client.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{QueueUrl: url, MaxNumberOfMessages: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var bodies []string
+	for _, m := range got.Messages {
+		bodies = append(bodies, aws.ToString(m.Body))
+	}
+	if strings.Join(bodies, ",") != "1,2,3" {
+		t.Fatalf("one receive returned %v, want the whole group in order", bodies)
+	}
+	again, err := client.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{QueueUrl: url, MaxNumberOfMessages: 10})
+	if err != nil || len(again.Messages) != 0 {
+		t.Fatalf("group with in-flight messages was delivered again: %+v, %v", again, err)
+	}
 }
