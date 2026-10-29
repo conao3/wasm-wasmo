@@ -19,6 +19,10 @@ events/tags
 firehose/delivery-stream-lifecycle
 firehose/list-delivery-streams
 firehose/stream-error
+iam/create-attach-policy
+iam/create-get-role
+iam/get-role-error
+iam/list-roles
 kinesis/record-chain
 kinesis/stream-error
 kinesis/stream-lifecycle

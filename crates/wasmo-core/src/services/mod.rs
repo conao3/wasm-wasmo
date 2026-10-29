@@ -4,6 +4,7 @@ pub mod cloudwatch;
 pub mod dynamodb;
 pub mod events;
 pub mod firehose;
+pub mod iam;
 pub mod kinesis;
 pub mod kms;
 pub mod logs;
@@ -32,6 +33,7 @@ pub fn all() -> Vec<Box<dyn Service>> {
         Box::new(firehose::Firehose::default()),
         Box::new(logs::Logs::default()),
         Box::new(cloudwatch::CloudWatch::default()),
+        Box::new(iam::Iam::default()),
     ]
 }
 

@@ -18,6 +18,7 @@ const MODELS: &[&str] = &[
     "firehose",
     "logs",
     "cloudwatch",
+    "iam",
 ];
 const STRIPPED_KEYS: &[&str] = &[
     "documentation",

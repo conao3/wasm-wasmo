@@ -79,6 +79,7 @@ aws-models/
   firehose.json       # botocore/data/firehose/2015-08-04/service-2.json       (protocol json)
   logs.json           # botocore/data/logs/2014-03-28/service-2.json           (protocol json)
   cloudwatch.json     # botocore/data/cloudwatch/2010-08-01/service-2.json     (protocol smithy-rpc-v2-cbor, also json and query; signingName monitoring)
+  iam.json            # botocore/data/iam/2010-05-08/service-2.json            (protocol query)
 ```
 
 `crates/wasmo-core/build.rs` strips documentation fields at build time; the
