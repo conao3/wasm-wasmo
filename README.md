@@ -34,7 +34,7 @@ await ddb.PutItemAsync("users", item);
 var out = await ddb.GetItemAsync("users", key);
 ```
 
-> **Status:** early development. The Go adapter (AWS SDK for Go v2), the JavaScript adapter (AWS SDK for JavaScript v3), the JVM adapter (AWS SDK for Java v2), and the .NET adapter (AWS SDK for .NET v4) run STS, SQS, DynamoDB, S3, SNS, EventBridge, Secrets Manager, SSM Parameter Store, and KMS. None is published yet.
+> **Status:** early development. Adapters for Go (AWS SDK for Go v2), JavaScript (AWS SDK for JavaScript v3), the JVM (AWS SDK for Java v2), .NET (AWS SDK for .NET v4), and Python (boto3) run STS, SQS, DynamoDB, S3, SNS, EventBridge, Secrets Manager, SSM Parameter Store, and KMS. None is published yet.
 
 | Service | Coverage |
 | --- | --- |
@@ -164,6 +164,32 @@ public class OrdersTest
 
 On NixOS, use the `dotnet-sdk_8` (or newer) package from nixpkgs, as the dev shell does. Its host process already loads `libgcc_s.so.1`, the one library `libwasmtime.so` needs beyond glibc, so the native library from the NuGet package loads without `patchelf`, `LD_LIBRARY_PATH`, or nix-ld.
 
+## Python
+
+`wasmo` hooks into botocore at the HTTP layer (the `before-send` event), so boto3 still signs, retries, validates checksums, and parses responses. It runs on Python 3.10+ with [wasmtime](https://pypi.org/project/wasmtime/); the WebAssembly module ships inside the package, is compiled once per process, and each mock gets its own instance.
+
+```python
+import boto3
+import wasmo
+
+with wasmo.mock_aws() as aws:
+    ddb = boto3.resource("dynamodb")
+    s3 = boto3.client("s3")
+    # every client and resource created here talks to this mock
+    aws.reset()  # drop all state
+
+@wasmo.mock_aws  # each call runs in a fresh mock
+def test_enqueue():
+    sqs = boto3.client("sqs")
+    ...
+
+aws = wasmo.Mock()  # explicit clients, no patching
+sqs = aws.client("sqs")
+aws.close()
+```
+
+Inside `mock_aws()`, clients default to the endpoint `http://wasmo.local`, region `us-east-1`, and dummy credentials. `aws.fetch(url)` sends a raw request such as a presigned URL (SigV4) to the mock. See `python/README.md` for details.
+
 ## Layout
 
 | Path | Contents |
@@ -172,6 +198,7 @@ On NixOS, use the `dotnet-sdk_8` (or newer) package from nixpkgs, as the dev she
 | `crates/wasmo-wasm` | The WebAssembly ABI around `wasmo-core` |
 | `go/` | Go adapter (`github.com/conao3/wasm-wasmo/go`) built on wazero |
 | `js/` | JavaScript / TypeScript adapter (`@conao3/wasmo`) for the AWS SDK for JavaScript v3 |
+| `python/` | Python adapter (`wasmo` on PyPI) for boto3, built on wasmtime |
 | `jvm/` | Java/Kotlin adapter (`io.github.conao3:wasmo`) built on Chicory, compiled to JVM bytecode at build time |
 | `dotnet/` | .NET adapter (NuGet `Wasmo`) for the AWS SDK for .NET v4, built on wasmtime-dotnet |
 | `vendor/` | Vendored upstream test data (see `vendor/PROVENANCE.md`) |
@@ -182,8 +209,8 @@ Tools come from the Nix dev shell.
 
 ```sh
 nix develop
-make test   # cargo test + build wasm + go test + node --test + bun test + mvn verify + dotnet test
-make lint   # rustfmt, clippy, gofmt, go vet, tsc, prettier, google-java-format, javac -Xlint, dotnet format, dotnet build (warnings as errors)
+make test   # cargo test + build wasm + go test + node --test + bun test + mvn verify + dotnet test + pytest
+make lint   # rustfmt, clippy, gofmt, go vet, tsc, prettier, google-java-format, javac -Xlint, dotnet format, dotnet build (warnings as errors), ruff
 ```
 
 ## License
