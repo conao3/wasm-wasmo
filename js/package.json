@@ -17,8 +17,13 @@
   },
   "files": [
     "dist",
-    "wasmo.wasm"
+    "wasmo.wasm",
+    "NOTICE"
   ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "engines": {
     "node": ">=20"
   },
