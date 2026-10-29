@@ -34,5 +34,8 @@ class CloudWatchTest < Minitest::Test
     assert_equal [base, base + 60], results["sum"].timestamps
     assert_equal [120.0, 200.0], results["doubled"].values
     assert_equal ["Latency"], cw.list_metrics(namespace: "App").metrics.map(&:metric_name)
+    assert_raises(Aws::CloudWatch::Errors::InvalidParameterValue) do
+      cw.put_metric_data(namespace: "AWS/EC2", metric_data: [{ metric_name: "x", value: 1.0 }])
+    end
   end
 end

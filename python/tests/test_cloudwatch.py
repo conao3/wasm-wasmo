@@ -56,3 +56,10 @@ def test_put_and_get_metric_data(aws):
 
     listed = cw.list_metrics(Namespace="App")["Metrics"]
     assert [m["MetricName"] for m in listed] == ["Latency"]
+
+    try:
+        cw.put_metric_data(Namespace="AWS/EC2", MetricData=[{"MetricName": "x", "Value": 1.0}])
+    except cw.exceptions.InvalidParameterValueException:
+        pass
+    else:
+        raise AssertionError("reserved namespace accepted")
