@@ -10,7 +10,7 @@ import (
 	"github.com/conao3/wasm-wasmo/go"
 )
 
-func newMock(t *testing.T) *wasmo.Mock {
+func newMock(t testing.TB) *wasmo.Mock {
 	t.Helper()
 	ctx := context.Background()
 	m, err := wasmo.New(ctx)
