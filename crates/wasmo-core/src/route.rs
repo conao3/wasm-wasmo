@@ -82,6 +82,54 @@ pub fn virtual_host_bucket(host: &str) -> Option<(&str, &str)> {
     None
 }
 
+/// An `execute-api` request: the API id, the region from the host, and the
+/// path starting with the stage.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExecuteApi {
+    pub id: String,
+    pub region: String,
+    pub path: String,
+}
+
+/// Recognizes `{api}.execute-api.{region}.amazonaws.com`, the same host under
+/// `wasmo.local` or `localhost` (`{api}.execute-api.wasmo.local`,
+/// `{api}.execute-api.{region}.localhost`), and the path form
+/// `/restapis/{api}/{stage}/_user_request_/{path}` on any host.
+pub fn execute_api(host: &str, path: &str) -> Option<ExecuteApi> {
+    let hostname = match host.rsplit_once(':') {
+        Some((h, port)) if port.bytes().all(|b| b.is_ascii_digit()) => h,
+        _ => host,
+    };
+    if let Some((id, rest)) = hostname.split_once(".execute-api.")
+        && !id.is_empty()
+        && !id.contains('.')
+    {
+        let label = rest.split('.').next().unwrap_or_default();
+        let region = if is_region(label) {
+            label
+        } else {
+            DEFAULT_REGION
+        };
+        return Some(ExecuteApi {
+            id: id.to_string(),
+            region: region.to_string(),
+            path: path.to_string(),
+        });
+    }
+    let rest = path.strip_prefix("/restapis/")?;
+    let (id, rest) = rest.split_once('/')?;
+    let (stage, rest) = rest.split_once("/_user_request_")?;
+    Some(ExecuteApi {
+        id: id.to_string(),
+        region: DEFAULT_REGION.to_string(),
+        path: format!("/{stage}{}", if rest.is_empty() { "/" } else { rest }),
+    })
+}
+
+fn is_region(label: &str) -> bool {
+    label.split('-').count() >= 3 && label.ends_with(|c: char| c.is_ascii_digit())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -122,6 +170,27 @@ mod tests {
         ));
         assert_eq!(r.service.as_deref(), Some("s3"));
         assert_eq!(r.region, "ap-northeast-1");
+    }
+
+    #[test]
+    fn execute_api_hosts() {
+        let api = execute_api("abc123.execute-api.eu-west-1.amazonaws.com", "/prod/pets").unwrap();
+        assert_eq!(
+            (api.id.as_str(), api.region.as_str(), api.path.as_str()),
+            ("abc123", "eu-west-1", "/prod/pets")
+        );
+        let api = execute_api("abc123.execute-api.wasmo.local", "/pets").unwrap();
+        assert_eq!(
+            (api.id.as_str(), api.region.as_str()),
+            ("abc123", "us-east-1")
+        );
+        let api = execute_api("wasmo.local", "/restapis/abc123/dev/_user_request_/a/b").unwrap();
+        assert_eq!((api.id.as_str(), api.path.as_str()), ("abc123", "/dev/a/b"));
+        assert_eq!(
+            execute_api("wasmo.local", "/restapis/abc123/resources"),
+            None
+        );
+        assert_eq!(execute_api("sqs.us-east-1.amazonaws.com", "/"), None);
     }
 
     #[test]

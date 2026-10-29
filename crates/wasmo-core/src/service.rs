@@ -101,6 +101,42 @@ pub struct Delivery {
     pub dead_letter: Option<String>,
 }
 
+/// A request from one service to another inside the emulator, in the same
+/// account and region, answered through `Service::answer` with the callee's
+/// output or error. A callee that sets `Ctx::awaiting` (a synchronous Lambda
+/// invocation, a `StartSyncExecution`) answers once that token settles.
+#[derive(Debug, Clone)]
+pub struct Call {
+    /// Chosen by the caller; `Service::answer` receives it back.
+    pub id: String,
+    /// Model name of the callee (`lambda`, `dynamodb`, `stepfunctions`, ...).
+    pub service: String,
+    pub operation: String,
+    pub input: Value,
+    pub account: String,
+    pub region: String,
+    /// Member names follow the SDK convention (`sdk` module) instead of the
+    /// callee's model.
+    pub sdk: bool,
+}
+
+/// The value a token set in `Ctx::awaiting` settles with: an operation result
+/// for SDK requests and calls, or a raw HTTP response for `execute-api`.
+#[derive(Debug)]
+pub enum Settlement {
+    Output(OpResult),
+    Http(Response),
+}
+
+/// What a service call left for the dispatcher besides its result.
+#[derive(Debug, Default)]
+pub struct Effects {
+    pub outbox: Vec<Delivery>,
+    pub calls: Vec<Call>,
+    pub settled: Vec<(String, Settlement)>,
+    pub awaiting: Option<String>,
+}
+
 pub struct Arn<'a> {
     pub partition: &'a str,
     pub service: &'a str,
@@ -132,8 +168,12 @@ pub struct Ctx<'a> {
     pub security_token: Option<String>,
     pub env: &'a mut dyn Env,
     pub outbox: Vec<Delivery>,
-    /// Set by an operation whose response waits for a Lambda invocation.
+    /// Set by an operation whose response waits for a token to settle: a
+    /// Lambda invocation id, or a token the service settles later through
+    /// `settle` / `respond`.
     pub awaiting: Option<String>,
+    pub calls: Vec<Call>,
+    pub settled: Vec<(String, Settlement)>,
 }
 
 impl<'a> Ctx<'a> {
@@ -151,6 +191,63 @@ impl<'a> Ctx<'a> {
             env,
             outbox: Vec::new(),
             awaiting: None,
+            calls: Vec::new(),
+            settled: Vec::new(),
+        }
+    }
+
+    /// Asks another service for `operation`; the result comes back through
+    /// `Service::answer` with the same `id`.
+    pub fn call(
+        &mut self,
+        id: impl Into<String>,
+        service: impl Into<String>,
+        operation: impl Into<String>,
+        input: Value,
+    ) {
+        self.calls.push(Call {
+            id: id.into(),
+            service: service.into(),
+            operation: operation.into(),
+            input,
+            account: self.account.clone(),
+            region: self.region.clone(),
+            sdk: false,
+        });
+    }
+
+    /// Like `call`, with SDK-style member names (`aws-sdk:*` integrations).
+    pub fn call_sdk(
+        &mut self,
+        id: impl Into<String>,
+        service: impl Into<String>,
+        operation: impl Into<String>,
+        input: Value,
+    ) {
+        self.call(id, service, operation, input);
+        if let Some(c) = self.calls.last_mut() {
+            c.sdk = true;
+        }
+    }
+
+    /// Settles a token an earlier operation left in `awaiting`.
+    pub fn settle(&mut self, token: impl Into<String>, result: OpResult) {
+        self.settled
+            .push((token.into(), Settlement::Output(result)));
+    }
+
+    /// Answers a raw HTTP request that waited on `token`.
+    pub fn respond(&mut self, token: impl Into<String>, response: Response) {
+        self.settled
+            .push((token.into(), Settlement::Http(response)));
+    }
+
+    pub fn effects(&mut self) -> Effects {
+        Effects {
+            outbox: std::mem::take(&mut self.outbox),
+            calls: std::mem::take(&mut self.calls),
+            settled: std::mem::take(&mut self.settled),
+            awaiting: self.awaiting.take(),
         }
     }
 
@@ -220,6 +317,23 @@ pub trait Service: Any {
     /// resource part). Returns false when the target does not exist or refuses it.
     fn deliver(&mut self, _ctx: &mut Ctx<'_>, _resource: &str, _delivery: &Delivery) -> bool {
         false
+    }
+
+    /// Receives the result of a `Ctx::call` this service made.
+    fn answer(&mut self, _ctx: &mut Ctx<'_>, _id: &str, _result: OpResult) {}
+
+    /// Whether a request signed for this service's signing name is meant for
+    /// it, when several services share the name (`apigateway` v1 and v2).
+    fn accepts(&self, _req: &Request) -> bool {
+        true
+    }
+
+    /// Answers a request to an `execute-api` endpoint of `api_id`. `req.path`
+    /// starts with the stage. Returns None when the API is not this service's.
+    /// A response that waits sets `Ctx::awaiting` and is answered with
+    /// `Ctx::respond`.
+    fn serve(&mut self, _ctx: &mut Ctx<'_>, _api_id: &str, _req: &Request) -> Option<Response> {
+        None
     }
 }
 

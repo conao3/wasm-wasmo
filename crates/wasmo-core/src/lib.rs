@@ -4,6 +4,7 @@ pub mod env;
 pub mod model;
 pub mod query;
 pub mod route;
+pub mod sdk;
 pub mod service;
 pub mod services;
 pub mod wire;
@@ -20,21 +21,42 @@ use codec::{AwsError, cbor, json, query as query_codec, rest};
 use env::Env;
 use model::{Operation, Shape};
 use route::Route;
-use service::{Arn, Ctx, Delivery, Service, ServiceModel};
+use service::{Arn, Call, Ctx, Delivery, Effects, OpResult, Service, ServiceModel, Settlement};
 use services::lambda::{Completion, InvokeResult, Lambda};
 use wire::{Request, Response};
 
 const MAX_DELIVERY_HOPS: usize = 256;
+const MAX_STEPS: usize = 100_000;
 
 pub struct Emulator<E: Env> {
     env: E,
     services: Vec<Box<dyn Service>>,
-    deferred: HashMap<String, Deferred>,
+    waiters: HashMap<String, Waiter>,
+    /// Responses of waiting requests whose token settled, not yet returned.
+    ready: Vec<(String, Response)>,
+    deliveries: VecDeque<Delivery>,
+    calls: VecDeque<(usize, Call)>,
+    settled: VecDeque<(String, Settlement)>,
     /// Count of handled requests; stream event sources that failed retry on a later one.
     tick: u64,
 }
 
-/// A response held back until the invocation it waits for completes.
+/// What waits for a token left in `Ctx::awaiting`.
+enum Waiter {
+    /// An SDK request whose response is the operation output.
+    Sdk(Deferred),
+    /// A raw `execute-api` request.
+    Raw,
+    /// A `Ctx::call` whose caller gets the output through `Service::answer`.
+    Call {
+        caller: usize,
+        id: String,
+        account: String,
+        region: String,
+    },
+}
+
+/// A response held back until the token it waits for settles.
 struct Deferred {
     service: usize,
     operation: String,
@@ -47,7 +69,11 @@ impl<E: Env> Emulator<E> {
         Self {
             env,
             services: services::all(),
-            deferred: HashMap::new(),
+            waiters: HashMap::new(),
+            ready: Vec::new(),
+            deliveries: VecDeque::new(),
+            calls: VecDeque::new(),
+            settled: VecDeque::new(),
             tick: 0,
         }
     }
@@ -57,6 +83,10 @@ impl<E: Env> Emulator<E> {
         let mut rid = [0u8; 16];
         self.env.random_fill(&mut rid);
         let request_id: String = rid.iter().map(|b| format!("{b:02x}")).collect();
+        let host = req.header("host").unwrap_or("wasmo.local").to_string();
+        if let Some(api) = route::execute_api(&host, &req.path) {
+            return self.serve(req, api);
+        }
         let route = Route::from_request(req);
         let Some(name) = route.service.as_deref() else {
             return Response::text(
@@ -73,6 +103,7 @@ impl<E: Env> Emulator<E> {
             .iter()
             .position(|s| {
                 s.signing_name() == name
+                    && s.accepts(req)
                     && target_prefix
                         .is_none_or(|p| s.model().metadata.target_prefix.as_deref() == Some(p))
             })
@@ -82,7 +113,7 @@ impl<E: Env> Emulator<E> {
         };
         let service = &mut self.services[index];
         let model = service.model();
-        let mut host = req.header("host").unwrap_or("wasmo.local").to_string();
+        let mut host = host;
         let vhost = service
             .virtual_hosted()
             .then(|| route::virtual_host_bucket(&host))
@@ -129,7 +160,7 @@ impl<E: Env> Emulator<E> {
         let op = service
             .resolve(req)
             .or_else(|| resolve(model, protocol, req));
-        let mut outbox = Vec::new();
+        let mut effects = Effects::default();
         let mut res = match (op, chunk_error) {
             (Some(op), Some(error)) => {
                 serialize_error(model, protocol, Some(op), &error, &request_id)
@@ -144,26 +175,30 @@ impl<E: Env> Emulator<E> {
                 ctx.security_token = req.header("x-amz-security-token").map(str::to_string);
                 let result = parse_input(model, protocol, op, req)
                     .and_then(|input| service.call(&mut ctx, &op.name, input));
+                let fx = ctx.effects();
                 match result {
-                    Ok(_) if ctx.awaiting.is_some() => {
-                        outbox = std::mem::take(&mut ctx.outbox);
-                        let invocation = ctx.awaiting.take().expect("checked above");
-                        self.deferred.insert(
-                            invocation.clone(),
-                            Deferred {
-                                service: index,
-                                operation: op.name.clone(),
-                                protocol,
-                                request_id: request_id.clone(),
-                            },
-                        );
-                        Response::awaiting(invocation)
-                    }
                     Ok(output) => {
-                        outbox = std::mem::take(&mut ctx.outbox);
-                        let mut res = serialize_output(model, protocol, op, &output, &request_id);
-                        service.finish(&op.name, &output, &mut res);
-                        res
+                        effects = fx;
+                        match effects.awaiting.take() {
+                            Some(token) => {
+                                self.waiters.insert(
+                                    token.clone(),
+                                    Waiter::Sdk(Deferred {
+                                        service: index,
+                                        operation: op.name.clone(),
+                                        protocol,
+                                        request_id: request_id.clone(),
+                                    }),
+                                );
+                                Response::awaiting(token)
+                            }
+                            None => {
+                                let mut res =
+                                    serialize_output(model, protocol, op, &output, &request_id);
+                                service.finish(&op.name, &output, &mut res);
+                                res
+                            }
+                        }
                     }
                     Err(error) => serialize_error(model, protocol, Some(op), &error, &request_id),
                 }
@@ -183,10 +218,10 @@ impl<E: Env> Emulator<E> {
             }
         };
         let endpoint = format!("http://{host}");
-        self.route(outbox, &endpoint);
-        self.pump(&endpoint);
-        if res.awaiting.is_some() {
-            return res;
+        self.absorb(index, effects);
+        self.settle_all(&endpoint);
+        if let Some(token) = res.awaiting.clone() {
+            return self.take_ready(&token).unwrap_or(res);
         }
         if req.method.eq_ignore_ascii_case("HEAD") || res.status == 304 {
             res.body.clear();
@@ -195,8 +230,49 @@ impl<E: Env> Emulator<E> {
         res
     }
 
+    /// Answers a request to an `execute-api` endpoint through the service
+    /// owning the API.
+    fn serve(&mut self, req: &Request, api: route::ExecuteApi) -> Response {
+        let endpoint = format!("http://{}", req.header("host").unwrap_or("wasmo.local"));
+        let mut r = req.clone();
+        r.path = api.path;
+        for index in 0..self.services.len() {
+            let mut ctx = Ctx::new(
+                route::DEFAULT_ACCOUNT,
+                api.region.clone(),
+                endpoint.clone(),
+                &mut self.env,
+            );
+            let Some(res) = self.services[index].serve(&mut ctx, &api.id, &r) else {
+                continue;
+            };
+            let mut fx = ctx.effects();
+            let token = fx.awaiting.take();
+            if let Some(t) = &token {
+                self.waiters.insert(t.clone(), Waiter::Raw);
+            }
+            self.absorb(index, fx);
+            self.settle_all(&endpoint);
+            return match token {
+                Some(t) => self.take_ready(&t).unwrap_or(Response::awaiting(t)),
+                None => res,
+            };
+        }
+        let mut res = Response::new(
+            403,
+            "application/json",
+            br#"{"message":"Forbidden"}"#.to_vec(),
+        );
+        res.headers.push((
+            "x-amzn-errortype".to_string(),
+            "ForbiddenException".to_string(),
+        ));
+        res
+    }
+
     /// Applies the host's answer to an invocation handed out through
-    /// `Env::invoke`. Returns the response of the request that waited for it.
+    /// `Env::invoke`. Returns the response of a request that waited for it,
+    /// directly or through the calls it made.
     pub fn complete(&mut self, meta: &[u8], payload: Vec<u8>) -> Option<Response> {
         let result = match InvokeResult::parse(meta, payload) {
             Ok(r) => r,
@@ -208,7 +284,6 @@ impl<E: Env> Emulator<E> {
             }
         };
         let id = result.id.clone();
-        let deferred = self.deferred.remove(&id);
         let li = self.lambda_index()?;
         let (account, region, endpoint) = lambda_mut(&mut self.services[li]).scope(&id)?;
         let mut ctx = Ctx::new(account, region, endpoint.clone(), &mut self.env);
@@ -216,22 +291,21 @@ impl<E: Env> Emulator<E> {
             response,
             sqs_deletes,
         } = lambda_mut(&mut self.services[li]).complete(&mut ctx, result);
-        let outbox = std::mem::take(&mut ctx.outbox);
+        let fx = ctx.effects();
         for delete in sqs_deletes {
             self.delete_messages(&delete.queue_arn, &delete.receipt_handles, &endpoint);
         }
-        self.route(outbox, &endpoint);
-        self.pump(&endpoint);
-        let d = deferred?;
-        let service = &self.services[d.service];
-        let model = service.model();
-        let op = model.operations.get(&d.operation)?;
-        let mut res = match response? {
-            Ok(output) => serialize_output(model, d.protocol, op, &output, &d.request_id),
-            Err(error) => serialize_error(model, d.protocol, Some(op), &error, &d.request_id),
-        };
-        stamp(&mut res, d.protocol, d.request_id);
-        Some(res)
+        self.absorb(li, fx);
+        if let Some(r) = response {
+            self.settled.push_back((id, Settlement::Output(r)));
+        }
+        self.settle_all(&endpoint);
+        (!self.ready.is_empty()).then(|| self.ready.remove(0).1)
+    }
+
+    fn take_ready(&mut self, token: &str) -> Option<Response> {
+        let at = self.ready.iter().position(|(t, _)| t == token)?;
+        Some(self.ready.remove(at).1)
     }
 
     fn lambda_index(&self) -> Option<usize> {
@@ -242,6 +316,171 @@ impl<E: Env> Emulator<E> {
 
     fn service_index(&self, model: &str) -> Option<usize> {
         self.services.iter().position(|s| s.model().name == model)
+    }
+
+    /// Queues what a call of the service at `origin` left behind.
+    fn absorb(&mut self, origin: usize, fx: Effects) {
+        self.deliveries.extend(fx.outbox);
+        self.calls.extend(fx.calls.into_iter().map(|c| (origin, c)));
+        self.settled.extend(fx.settled);
+    }
+
+    /// Runs deliveries, calls, and settlements until none is left, then polls
+    /// the event source mappings, which may start more.
+    fn settle_all(&mut self, endpoint: &str) {
+        self.drain(endpoint);
+        self.pump(endpoint);
+        self.drain(endpoint);
+    }
+
+    fn drain(&mut self, endpoint: &str) {
+        let mut hops = 0;
+        for _ in 0..MAX_STEPS {
+            if let Some(d) = self.deliveries.pop_front() {
+                hops += 1;
+                if hops <= MAX_DELIVERY_HOPS {
+                    self.deliver(d, endpoint);
+                }
+            } else if let Some((origin, call)) = self.calls.pop_front() {
+                self.run_call(origin, call, endpoint);
+            } else if let Some((token, s)) = self.settled.pop_front() {
+                self.settle(token, s, endpoint);
+            } else {
+                return;
+            }
+        }
+        self.deliveries.clear();
+        self.calls.clear();
+        self.settled.clear();
+    }
+
+    fn run_call(&mut self, origin: usize, call: Call, endpoint: &str) {
+        let Call {
+            id,
+            service,
+            operation,
+            input,
+            account,
+            region,
+            sdk,
+        } = call;
+        let target = self.service_index(&service);
+        let op = target.and_then(|t| self.services[t].model().operations.get(&operation));
+        let (Some(target), Some(op)) = (target, op) else {
+            let error = AwsError::new(
+                400,
+                "UnknownOperationException",
+                format!("wasmo: {service} {operation} is not emulated"),
+            );
+            self.answer(origin, &id, &account, &region, Err(error), endpoint);
+            return;
+        };
+        let reg = &self.services[target].model().registry;
+        let input = if sdk {
+            sdk::input(reg, op, input)
+        } else {
+            input
+        };
+        let mut ctx = Ctx::new(account.clone(), region.clone(), endpoint, &mut self.env);
+        let result = self.services[target]
+            .call(&mut ctx, &operation, input)
+            .map(|out| if sdk { sdk::output(reg, op, out) } else { out });
+        let mut fx = ctx.effects();
+        match result {
+            Ok(output) => {
+                let token = fx.awaiting.take();
+                self.absorb(target, fx);
+                match token {
+                    Some(token) => {
+                        self.waiters.insert(
+                            token,
+                            Waiter::Call {
+                                caller: origin,
+                                id,
+                                account,
+                                region,
+                            },
+                        );
+                    }
+                    None => self.answer(origin, &id, &account, &region, Ok(output), endpoint),
+                }
+            }
+            Err(error) => self.answer(origin, &id, &account, &region, Err(error), endpoint),
+        }
+    }
+
+    fn answer(
+        &mut self,
+        caller: usize,
+        id: &str,
+        account: &str,
+        region: &str,
+        result: OpResult,
+        endpoint: &str,
+    ) {
+        let mut ctx = Ctx::new(account, region, endpoint, &mut self.env);
+        self.services[caller].answer(&mut ctx, id, result);
+        let fx = ctx.effects();
+        self.absorb(caller, fx);
+    }
+
+    fn settle(&mut self, token: String, settlement: Settlement, endpoint: &str) {
+        let Some(waiter) = self.waiters.remove(&token) else {
+            return;
+        };
+        match (waiter, settlement) {
+            (Waiter::Sdk(d), Settlement::Output(result)) => {
+                let service = &self.services[d.service];
+                let model = service.model();
+                let Some(op) = model.operations.get(&d.operation) else {
+                    return;
+                };
+                let mut res = match result {
+                    Ok(output) => {
+                        let mut res =
+                            serialize_output(model, d.protocol, op, &output, &d.request_id);
+                        service.finish(&op.name, &output, &mut res);
+                        res
+                    }
+                    Err(error) => {
+                        serialize_error(model, d.protocol, Some(op), &error, &d.request_id)
+                    }
+                };
+                stamp(&mut res, d.protocol, d.request_id);
+                self.ready.push((token, res));
+            }
+            (Waiter::Raw, Settlement::Http(res)) | (Waiter::Sdk(_), Settlement::Http(res)) => {
+                self.ready.push((token, res));
+            }
+            (Waiter::Raw, Settlement::Output(_)) => {
+                self.ready.push((
+                    token,
+                    Response::new(
+                        502,
+                        "application/json",
+                        br#"{"message": "Internal server error"}"#.to_vec(),
+                    ),
+                ));
+            }
+            (
+                Waiter::Call {
+                    caller,
+                    id,
+                    account,
+                    region,
+                },
+                settlement,
+            ) => {
+                let result = match settlement {
+                    Settlement::Output(r) => r,
+                    Settlement::Http(res) => Ok(serde_json::json!({
+                        "status": res.status,
+                        "body": String::from_utf8_lossy(&res.body),
+                    })),
+                };
+                self.answer(caller, &id, &account, &region, result, endpoint);
+            }
+        }
     }
 
     /// Polls the enabled event source mappings and hands each new batch to
@@ -263,11 +502,11 @@ impl<E: Env> Emulator<E> {
             );
             let batch = poll.fetch(self.services[si].as_mut(), &mut ctx);
             let deletes = lambda_mut(&mut self.services[li]).dispatch(&mut ctx, poll, batch);
-            let outbox = std::mem::take(&mut ctx.outbox);
+            let fx = ctx.effects();
             for delete in deletes {
                 self.delete_messages(&delete.queue_arn, &delete.receipt_handles, endpoint);
             }
-            self.route(outbox, endpoint);
+            self.absorb(li, fx);
         }
     }
 
@@ -290,33 +529,28 @@ impl<E: Env> Emulator<E> {
         }
     }
 
-    /// Routes deliveries to the services owning the target ARNs, following the
-    /// deliveries those services emit in turn.
-    fn route(&mut self, outbox: Vec<Delivery>, endpoint: &str) {
-        let mut queue: VecDeque<Delivery> = outbox.into();
-        let mut hops = 0;
-        while let Some(d) = queue.pop_front() {
-            hops += 1;
-            if hops > MAX_DELIVERY_HOPS {
-                break;
-            }
-            let Some(arn) = Arn::parse(&d.target) else {
-                continue;
-            };
-            let mut ctx = Ctx::new(arn.account, arn.region, endpoint, &mut self.env);
-            let delivered = self
-                .services
-                .iter_mut()
-                .find(|s| s.arn_service() == arn.service)
-                .is_some_and(|s| s.deliver(&mut ctx, arn.resource, &d));
-            queue.extend(ctx.outbox);
-            if !delivered && let Some(dlq) = d.dead_letter.clone() {
-                queue.push_back(Delivery {
-                    target: dlq,
-                    dead_letter: None,
-                    ..d
-                });
-            }
+    /// Hands a delivery to the service owning the target ARN, or to its dead
+    /// letter target when the service does not accept it.
+    fn deliver(&mut self, d: Delivery, endpoint: &str) {
+        let Some(arn) = Arn::parse(&d.target) else {
+            return;
+        };
+        let mut ctx = Ctx::new(arn.account, arn.region, endpoint, &mut self.env);
+        let index = self
+            .services
+            .iter()
+            .position(|s| s.arn_service() == arn.service);
+        let delivered = index.is_some_and(|i| self.services[i].deliver(&mut ctx, arn.resource, &d));
+        let fx = ctx.effects();
+        if let Some(i) = index {
+            self.absorb(i, fx);
+        }
+        if !delivered && let Some(dlq) = d.dead_letter.clone() {
+            self.deliveries.push_back(Delivery {
+                target: dlq,
+                dead_letter: None,
+                ..d
+            });
         }
     }
 }
