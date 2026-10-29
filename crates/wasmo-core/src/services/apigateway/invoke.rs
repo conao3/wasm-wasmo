@@ -61,13 +61,6 @@ fn find<'r>(
         let Some((score, params)) = proxy::match_path(r.path(), path) else {
             continue;
         };
-        if r.methods
-            .get(method)
-            .or_else(|| r.methods.get("ANY"))
-            .is_none()
-        {
-            continue;
-        }
         let better = best
             .as_ref()
             .is_none_or(|(s, _, _)| (score.2, score.0, score.1) > (s.2, s.0, s.1));

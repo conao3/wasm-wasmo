@@ -456,9 +456,9 @@ fn run(nodes: &[Node], scope: &Scope<'_>, vars: &mut HashMap<String, Value>, out
         match n {
             Node::Text(t) => out.push_str(t),
             Node::Ref { quiet, expr } => match eval(expr, scope, vars) {
-                Some(Value::Null) | None if *quiet => {}
-                Some(v) if !v.is_null() => out.push_str(&text(&v)),
-                _ => out.push_str(&source(expr)),
+                Some(v) => out.push_str(&text(&v)),
+                None if *quiet => {}
+                None => out.push_str(&source(expr)),
             },
             Node::Set(name, e) => {
                 let v = eval(e, scope, vars).unwrap_or(Value::Null);
@@ -684,6 +684,7 @@ fn step(v: &Value, st: &Step, scope: &Scope<'_>, vars: &HashMap<String, Value>) 
     match st {
         Step::Prop(p) => match v {
             Value::Object(o) => o.get(p).cloned().or(Some(Value::Null)),
+            Value::Null => Some(Value::Null),
             _ => None,
         },
         Step::Call(m, args) => {
@@ -862,6 +863,10 @@ mod tests {
             "aGk= a+b%26c"
         );
         assert_eq!(render("$!nothing$nothing", &s), "$nothing");
+        assert_eq!(
+            render("[$input.path('$.missing')$context.missing.deeper]", &s),
+            "[]"
+        );
         assert_eq!(
             render(
                 "Action=SendMessage&MessageBody=$util.urlEncode($input.body)",
