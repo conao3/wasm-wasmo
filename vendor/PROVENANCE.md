@@ -42,8 +42,8 @@ botocore-protocol-tests/
 
 ### Notes
 
-- `smithy-rpc-v2-cbor*.json` are vendored for completeness but `rpcv2Cbor` is not
-  supported yet; the conformance runner skips them.
+- `smithy-rpc-v2-cbor*.json` run in the conformance suite like the other
+  protocols.
 - The upstream `LICENSE.txt` and `NOTICE` are co-located in
   `botocore-protocol-tests/` to satisfy Apache-2.0 4(a)/4(d). The root `NOTICE`
   propagates the Botocore attribution.

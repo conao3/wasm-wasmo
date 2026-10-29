@@ -12,9 +12,9 @@ use std::path::PathBuf;
 
 use serde_json::Value;
 use wasmo_core::codec::AwsError;
-use wasmo_core::codec::json;
 use wasmo_core::codec::query::{self, Dialect};
 use wasmo_core::codec::rest::{self, BodyFormat, HttpRequest, HttpResponse};
+use wasmo_core::codec::{cbor, json};
 use wasmo_core::model::{Metadata, Operation, Registry};
 use wasmo_core::xml::{self, Element};
 
@@ -25,12 +25,18 @@ const FILES: &[&str] = &[
     "input/json_1_0.json",
     "input/rest-json.json",
     "input/rest-xml.json",
+    "input/smithy-rpc-v2-cbor.json",
+    "input/smithy-rpc-v2-cbor-query-compatible.json",
+    "input/smithy-rpc-v2-cbor-non-query-compatible.json",
     "output/query.json",
     "output/ec2.json",
     "output/json.json",
     "output/json_1_0.json",
     "output/rest-json.json",
     "output/rest-xml.json",
+    "output/smithy-rpc-v2-cbor.json",
+    "output/smithy-rpc-v2-cbor-query-compatible.json",
+    "output/smithy-rpc-v2-cbor-non-query-compatible.json",
 ];
 
 fn vendor_dir() -> PathBuf {
@@ -131,6 +137,7 @@ fn run_case(direction: &str, meta: &Metadata, reg: &Registry, case: &Value) -> R
         "query" => Dialect::Query,
         "ec2" => Dialect::Ec2,
         "json" => return run_json_case(direction, reg, &op, case),
+        "smithy-rpc-v2-cbor" => return run_cbor_case(direction, reg, &op, case),
         "rest-json" => return run_rest_case(direction, reg, meta, &op, case, BodyFormat::Json),
         "rest-xml" => return run_rest_case(direction, reg, meta, &op, case, BodyFormat::Xml),
         other => return Err(format!("protocol {other} not implemented")),
@@ -520,4 +527,61 @@ fn with_encoded_blobs(reg: &Registry, case: &Value, key: &str, shape: Option<&st
         case[key] = encode_blobs(reg, &v, reg.shape(shape));
     }
     case
+}
+
+fn cbor_json(bytes: &[u8]) -> Result<Value, String> {
+    if bytes.is_empty() {
+        return Ok(Value::Object(Default::default()));
+    }
+    let doc = wasmo_core::model::Shape {
+        kind: "structure".to_string(),
+        document: true,
+        ..Default::default()
+    };
+    Ok(cbor::from_wire(
+        &Registry::default(),
+        &cbor::decode(bytes)?,
+        &doc,
+    ))
+}
+
+fn run_cbor_case(
+    direction: &str,
+    reg: &Registry,
+    op: &Operation,
+    case: &Value,
+) -> Result<(), String> {
+    use base64::Engine;
+    let b64 = |key: &str, field: &str| {
+        base64::engine::general_purpose::STANDARD
+            .decode(case[key][field].as_str().unwrap_or_default())
+            .map_err(|e| e.to_string())
+    };
+    if direction == "input" {
+        let shape = op.input.as_ref().map(|i| reg.shape(&i.shape));
+        let actual = cbor::parse_input(reg, &b64("serialized", "body")?, shape)
+            .map_err(|e| format!("{}: {}", e.code, e.message))?;
+        return compare_params(&actual, case);
+    }
+    let expected = cbor_json(&b64("response", "body")?)?;
+    let actual = if let Some((mut error, shape_name)) = case_error(reg, op, case, |name| {
+        query::error_code(name, reg.shape(name))
+    }) {
+        let shape = shape_name.as_deref().map(|n| reg.shape(n));
+        if let Some(name) = &shape_name {
+            error.code = name.clone();
+        }
+        cbor::error_body(reg, &error, shape)
+    } else {
+        let result = case
+            .get("result")
+            .cloned()
+            .unwrap_or(Value::Object(Default::default()));
+        cbor::serialize(
+            reg,
+            &result,
+            op.output.as_ref().map(|o| reg.shape(&o.shape)),
+        )
+    };
+    compare_json(&cbor_json(&actual)?, &expected.to_string())
 }

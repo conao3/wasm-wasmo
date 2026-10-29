@@ -148,6 +148,8 @@ pub struct Operation {
 #[serde(rename_all = "camelCase")]
 pub struct Metadata {
     pub protocol: String,
+    #[serde(default)]
+    pub protocols: Vec<String>,
     pub api_version: Option<String>,
     pub target_prefix: Option<String>,
     pub json_version: Option<String>,

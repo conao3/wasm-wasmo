@@ -11,6 +11,8 @@ use crate::wire::{Request, Response};
 
 #[derive(Debug)]
 pub struct ServiceModel {
+    /// File name of the model under `vendor/aws-models/` (botocore service name).
+    pub name: &'static str,
     pub metadata: Metadata,
     pub operations: HashMap<String, Operation>,
     pub registry: Registry,
@@ -25,10 +27,11 @@ struct RawModel {
 }
 
 impl ServiceModel {
-    pub fn parse(json: &str) -> Self {
+    pub fn parse(name: &'static str, json: &str) -> Self {
         let raw: RawModel = serde_json::from_str(json).expect("embedded model parses");
         let query_compatible = raw.metadata.get("awsQueryCompatible").is_some();
         Self {
+            name,
             metadata: serde_json::from_value(raw.metadata).expect("model metadata parses"),
             operations: raw.operations,
             registry: Registry::from_value(&raw.shapes).expect("model shapes parse"),
@@ -259,12 +262,10 @@ macro_rules! embedded_model {
         static MODEL: std::sync::OnceLock<$crate::service::ServiceModel> =
             std::sync::OnceLock::new();
         MODEL.get_or_init(|| {
-            $crate::service::ServiceModel::parse(include_str!(concat!(
-                env!("OUT_DIR"),
-                "/models/",
+            $crate::service::ServiceModel::parse(
                 $name,
-                ".json"
-            )))
+                include_str!(concat!(env!("OUT_DIR"), "/models/", $name, ".json")),
+            )
         })
     }};
 }

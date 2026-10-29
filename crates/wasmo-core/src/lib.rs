@@ -14,7 +14,7 @@ use std::collections::VecDeque;
 use serde_json::Value;
 
 use codec::rest::{BodyFormat, HttpRequest};
-use codec::{AwsError, json, query as query_codec, rest};
+use codec::{AwsError, cbor, json, query as query_codec, rest};
 use env::Env;
 use model::{Operation, Shape};
 use route::Route;
@@ -47,9 +47,23 @@ impl<E: Env> Emulator<E> {
                 "wasmo: unable to determine the target service".to_string(),
             );
         };
-        let Some(service) = self.services.iter_mut().find(|s| s.signing_name() == name) else {
+        let target_prefix = req
+            .header("x-amz-target")
+            .and_then(|t| t.split_once('.'))
+            .map(|(p, _)| p);
+        let Some(index) = self
+            .services
+            .iter()
+            .position(|s| {
+                s.signing_name() == name
+                    && target_prefix
+                        .is_none_or(|p| s.model().metadata.target_prefix.as_deref() == Some(p))
+            })
+            .or_else(|| self.services.iter().position(|s| s.signing_name() == name))
+        else {
             return Response::text(400, format!("wasmo: service '{name}' is not emulated"));
         };
+        let service = &mut self.services[index];
         let model = service.model();
         let mut host = req.header("host").unwrap_or("wasmo.local").to_string();
         let vhost = service
@@ -77,10 +91,15 @@ impl<E: Env> Emulator<E> {
             chunk_error = Some(AwsError::new(400, "IncompleteBody", e));
         }
         let req = normalized.as_ref().unwrap_or(req);
-        let op = service.resolve(req).or_else(|| resolve(model, req));
+        let protocol = request_protocol(model, req);
+        let op = service
+            .resolve(req)
+            .or_else(|| resolve(model, protocol, req));
         let mut outbox = Vec::new();
         let mut res = match (op, chunk_error) {
-            (Some(op), Some(error)) => serialize_error(model, Some(op), &error, &request_id),
+            (Some(op), Some(error)) => {
+                serialize_error(model, protocol, Some(op), &error, &request_id)
+            }
             (Some(op), None) => {
                 let mut ctx = Ctx::new(
                     route.account.clone(),
@@ -89,25 +108,26 @@ impl<E: Env> Emulator<E> {
                     &mut self.env,
                 );
                 ctx.security_token = req.header("x-amz-security-token").map(str::to_string);
-                let result = parse_input(model, op, req)
+                let result = parse_input(model, protocol, op, req)
                     .and_then(|input| service.call(&mut ctx, &op.name, input));
                 match result {
                     Ok(output) => {
                         outbox = std::mem::take(&mut ctx.outbox);
-                        let mut res = serialize_output(model, op, &output, &request_id);
+                        let mut res = serialize_output(model, protocol, op, &output, &request_id);
                         service.finish(&op.name, &output, &mut res);
                         res
                     }
-                    Err(error) => serialize_error(model, Some(op), &error, &request_id),
+                    Err(error) => serialize_error(model, protocol, Some(op), &error, &request_id),
                 }
             }
             (None, _) => {
-                let code = match model.metadata.protocol.as_str() {
+                let code = match protocol {
                     "query" | "ec2" => "InvalidAction",
                     _ => "UnknownOperationException",
                 };
                 serialize_error(
                     model,
+                    protocol,
                     None,
                     &AwsError::new(400, code, "wasmo: unable to resolve the operation"),
                     &request_id,
@@ -120,7 +140,7 @@ impl<E: Env> Emulator<E> {
         }
         res.headers
             .push(("x-amzn-requestid".to_string(), request_id.clone()));
-        if model.metadata.protocol == "rest-xml" {
+        if protocol == "rest-xml" {
             res.headers
                 .push(("x-amz-request-id".to_string(), request_id));
         }
@@ -158,8 +178,33 @@ impl<E: Env> Emulator<E> {
     }
 }
 
-fn resolve<'m>(model: &'m ServiceModel, req: &Request) -> Option<&'m Operation> {
-    match model.metadata.protocol.as_str() {
+const CBOR: &str = "smithy-rpc-v2-cbor";
+
+/// Picks the protocol of `req` among those the model lists, so a service
+/// offering several (CloudWatch) answers each client in the one it speaks.
+fn request_protocol<'m>(model: &'m ServiceModel, req: &Request) -> &'m str {
+    let meta = &model.metadata;
+    if meta.protocols.len() > 1 {
+        let wanted = if req.header("smithy-protocol") == Some("rpc-v2-cbor") {
+            CBOR
+        } else if req.header("x-amz-target").is_some() {
+            "json"
+        } else {
+            "query"
+        };
+        if let Some(p) = meta.protocols.iter().find(|p| *p == wanted) {
+            return p;
+        }
+    }
+    &meta.protocol
+}
+
+fn resolve<'m>(model: &'m ServiceModel, protocol: &str, req: &Request) -> Option<&'m Operation> {
+    match protocol {
+        CBOR => {
+            let (_, op) = req.path.rsplit_once("/operation/")?;
+            model.operations.get(op)
+        }
         "query" | "ec2" => {
             let form = query_form(req);
             let action = query::form_value(&form, "Action")?;
@@ -181,18 +226,24 @@ fn query_form(req: &Request) -> Vec<(String, String)> {
     form
 }
 
-fn rest_format(model: &ServiceModel) -> BodyFormat {
-    if model.metadata.protocol == "rest-xml" {
+fn rest_format(protocol: &str) -> BodyFormat {
+    if protocol == "rest-xml" {
         BodyFormat::Xml
     } else {
         BodyFormat::Json
     }
 }
 
-fn parse_input(model: &ServiceModel, op: &Operation, req: &Request) -> Result<Value, AwsError> {
+fn parse_input(
+    model: &ServiceModel,
+    protocol: &str,
+    op: &Operation,
+    req: &Request,
+) -> Result<Value, AwsError> {
     let reg = &model.registry;
     let shape = op.input.as_ref().map(|i| reg.shape(&i.shape));
-    match model.metadata.protocol.as_str() {
+    match protocol {
+        CBOR => cbor::parse_input(reg, &req.body, shape),
         "query" => Ok(query_codec::parse_input(
             &query_form(req),
             reg,
@@ -213,19 +264,24 @@ fn parse_input(model: &ServiceModel, op: &Operation, req: &Request) -> Result<Va
                 headers: &req.headers,
                 body: &req.body,
             };
-            rest::parse_input(reg, op, &http, rest_format(model))
+            rest::parse_input(reg, op, &http, rest_format(protocol))
         }
     }
 }
 
 fn serialize_output(
     model: &ServiceModel,
+    protocol: &str,
     op: &Operation,
     output: &Value,
     request_id: &str,
 ) -> Response {
     let reg = &model.registry;
-    match model.metadata.protocol.as_str() {
+    match protocol {
+        CBOR => {
+            let shape = op.output.as_ref().map(|o| reg.shape(&o.shape));
+            cbor_response(200, cbor::serialize(reg, output, shape))
+        }
         p @ ("query" | "ec2") => {
             let dialect = if p == "ec2" {
                 query_codec::Dialect::Ec2
@@ -251,7 +307,7 @@ fn serialize_output(
             )
         }
         _ => {
-            let r = rest::serialize_output(reg, op, output, rest_format(model));
+            let r = rest::serialize_output(reg, op, output, rest_format(protocol));
             Response {
                 status: r.status,
                 headers: r.headers,
@@ -295,6 +351,7 @@ fn error_shape<'m>(
 
 fn serialize_error(
     model: &ServiceModel,
+    protocol: &str,
     op: Option<&Operation>,
     error: &AwsError,
     request_id: &str,
@@ -316,7 +373,15 @@ fn serialize_error(
         .unwrap_or(error.status);
     let mut error = error.clone();
     error.status = status;
-    match model.metadata.protocol.as_str() {
+    match protocol {
+        CBOR => {
+            if let Some((name, _)) = modeled {
+                error.code = name.to_string();
+            }
+            let mut res = cbor_response(status, cbor::error_body(reg, &error, shape));
+            query_error_header(model, &mut res, &query_code, error.sender_fault);
+            res
+        }
         p @ ("query" | "ec2") => {
             let dialect = if p == "ec2" {
                 query_codec::Dialect::Ec2
@@ -334,21 +399,11 @@ fn serialize_error(
             let body =
                 serde_json::to_vec(&json::error_body(reg, &error, shape)).expect("json serializes");
             let mut res = Response::new(status, &json_content_type(model), body);
-            if model.is_query_compatible() {
-                let fault = if error.sender_fault {
-                    "Sender"
-                } else {
-                    "Receiver"
-                };
-                res.headers.push((
-                    "x-amzn-query-error".to_string(),
-                    format!("{query_code};{fault}"),
-                ));
-            }
+            query_error_header(model, &mut res, &query_code, error.sender_fault);
             res
         }
         _ => {
-            if model.metadata.protocol == "rest-xml" {
+            if protocol == "rest-xml" {
                 error.code = query_code;
             } else if let Some((name, _)) = modeled {
                 error.code = name.to_string();
@@ -356,7 +411,7 @@ fn serialize_error(
             let r = if model.metadata.service_id.as_deref() == Some("S3") {
                 rest::serialize_unwrapped_error(&error, request_id)
             } else {
-                rest::serialize_error(reg, &error, shape, rest_format(model), request_id)
+                rest::serialize_error(reg, &error, shape, rest_format(protocol), request_id)
             };
             Response {
                 status: r.status,
@@ -364,5 +419,22 @@ fn serialize_error(
                 body: r.body,
             }
         }
+    }
+}
+
+fn cbor_response(status: u16, body: Vec<u8>) -> Response {
+    let mut res = Response::new(status, "application/cbor", body);
+    res.headers
+        .push(("smithy-protocol".to_string(), "rpc-v2-cbor".to_string()));
+    res
+}
+
+fn query_error_header(model: &ServiceModel, res: &mut Response, query_code: &str, sender: bool) {
+    if model.is_query_compatible() {
+        let fault = if sender { "Sender" } else { "Receiver" };
+        res.headers.push((
+            "x-amzn-query-error".to_string(),
+            format!("{query_code};{fault}"),
+        ));
     }
 }

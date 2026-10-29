@@ -80,3 +80,13 @@ output/rest-xml.json:InvalidGreetingError	client accepts alternate error encodin
 output/rest-xml.json:ComplexError	client accepts alternate error encodings; the server writes one
 output/rest-xml.json:IgnoreQueryParamsInResponse	client ignores or tolerates extra response content
 output/rest-xml.json:XmlNamespaces	client ignores xmlns on nested structures
+input/smithy-rpc-v2-cbor.json:RpcV2CborClientDoesntSerializeNullStructureValues	client omits null and empty values when serializing
+output/smithy-rpc-v2-cbor.json:RpcV2CborInvalidGreetingError	botocore models carry no Smithy namespace, so __type is the bare shape name (clients strip the namespace)
+output/smithy-rpc-v2-cbor.json:RpcV2CborComplexError	botocore models carry no Smithy namespace, so __type is the bare shape name (clients strip the namespace)
+output/smithy-rpc-v2-cbor.json:RpcV2CborEmptyComplexError	botocore models carry no Smithy namespace, so __type is the bare shape name (clients strip the namespace)
+output/smithy-rpc-v2-cbor.json:RpcV2CborDeserializesDenseSetMapAndSkipsNull	client skips null map values when deserializing
+output/smithy-rpc-v2-cbor.json:RpcV2CborClientDoesntDeserializeNullStructureValues	client skips null members when deserializing
+output/smithy-rpc-v2-cbor.json:RpcV2CborExtraFieldsInTheBodyShouldBeSkippedByClients	client skips unknown members when deserializing
+output/smithy-rpc-v2-cbor.json:RpcV2CborPayloadWithUnsetUnion	the fixture body (float and double -Infinity) does not encode its empty result
+output/smithy-rpc-v2-cbor-query-compatible.json:QueryCompatibleRpcV2CborNoCustomCodeError	botocore models carry no Smithy namespace, so __type is the bare shape name (clients strip the namespace)
+output/smithy-rpc-v2-cbor-query-compatible.json:QueryCompatibleRpcV2CborCustomCodeError	botocore models carry no Smithy namespace, so __type is the bare shape name (clients strip the namespace)

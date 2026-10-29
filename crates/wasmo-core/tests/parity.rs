@@ -17,10 +17,10 @@ use crc::{CRC_32_ISO_HDLC, Crc};
 use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
 use wasmo_core::Emulator;
-use wasmo_core::codec::json;
 use wasmo_core::codec::rest::{uri_encode, xml_root_name};
 use wasmo_core::codec::scalar::{format_text, parse_text};
 use wasmo_core::codec::xml_value::{read_structure, write_structure_members};
+use wasmo_core::codec::{cbor, json};
 use wasmo_core::env::FixedEnv;
 use wasmo_core::model::{MemberRef, Operation, Registry, Shape};
 use wasmo_core::service::ServiceModel;
@@ -51,7 +51,7 @@ struct Client {
 impl Client {
     fn new(signing_name: &'static str, model: &'static ServiceModel) -> Self {
         let raw: Value = serde_json::from_str(
-            &fs::read_to_string(root().join(format!("vendor/aws-models/{signing_name}.json")))
+            &fs::read_to_string(root().join(format!("vendor/aws-models/{}.json", model.name)))
                 .unwrap(),
         )
         .unwrap();
@@ -87,6 +87,25 @@ impl Client {
             ),
         ];
         let (method, path_and_query, body) = match self.protocol() {
+            "smithy-rpc-v2-cbor" => {
+                let meta = &self.model.metadata;
+                headers.push(("smithy-protocol".to_string(), "rpc-v2-cbor".to_string()));
+                headers.push(("accept".to_string(), "application/cbor".to_string()));
+                let shape = op.input.as_ref().map(|i| reg.shape(&i.shape));
+                let body = shape.map_or_else(Vec::new, |s| cbor::serialize(reg, &input, Some(s)));
+                if !body.is_empty() {
+                    headers.push(("content-type".to_string(), "application/cbor".to_string()));
+                }
+                (
+                    "POST".to_string(),
+                    format!(
+                        "/service/{}/operation/{}",
+                        meta.target_prefix.as_deref().unwrap_or_default(),
+                        op.name
+                    ),
+                    body,
+                )
+            }
             "json" => {
                 let meta = &self.model.metadata;
                 headers.push((
@@ -313,6 +332,11 @@ impl Client {
         };
         let shape = reg.shape(&output.shape);
         match self.protocol() {
+            "smithy-rpc-v2-cbor" => Ok(cbor::from_wire(
+                reg,
+                &cbor::decode(&res.body).unwrap(),
+                shape,
+            )),
             "json" => Ok(json::from_wire(
                 reg,
                 &json::parse_body(&res.body).unwrap(),
@@ -400,6 +424,22 @@ impl Client {
 
     fn error_name(&self, res: &Response) -> String {
         match self.protocol() {
+            "smithy-rpc-v2-cbor" => {
+                let body = cbor::decode(&res.body).map(|c| match c {
+                    cbor::Cbor::Map(entries) => entries
+                        .into_iter()
+                        .find(|(k, _)| *k == cbor::Cbor::Text("__type".to_string()))
+                        .map(|(_, v)| v),
+                    _ => None,
+                });
+                let code = match body {
+                    Ok(Some(cbor::Cbor::Text(t))) => t,
+                    _ => String::new(),
+                };
+                code.rsplit_once('#')
+                    .map_or(code.as_str(), |(_, c)| c)
+                    .to_string()
+            }
             "json" => {
                 let body = json::parse_body(&res.body).unwrap_or_default();
                 let code = body

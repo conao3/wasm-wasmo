@@ -50,7 +50,7 @@ var out = await ddb.GetItemAsync("users", key);
 
 Services deliver to each other inside a mock: SNS to SQS, EventBridge to SQS and SNS, and S3 notifications to SQS, SNS, and EventBridge happen synchronously during the triggering call.
 
-The protocol codecs (awsQuery, ec2, awsJson 1.0/1.1, rest-json, rest-xml) are checked against botocore's protocol test suite; every case either passes or is listed in `crates/wasmo-core/tests/conformance-gaps.txt` as client-only behaviour.
+The protocol codecs (awsQuery, ec2, awsJson 1.0/1.1, rest-json, rest-xml, Smithy RPC v2 CBOR) are checked against botocore's protocol test suite; every case either passes or is listed in `crates/wasmo-core/tests/conformance-gaps.txt` as client-only behaviour.
 
 Service behaviour is checked against the parity fixtures of [bun-bunsai](https://github.com/conao3/bun-bunsai), whose expectations come from real AWS (LocalStack snapshot recordings, moto `@aws_verified` tests, and the AWS API reference). Each fixture replays AWS SDK commands as wire requests through the emulator; every fixture of an emulated service either passes or is listed in `crates/wasmo-core/tests/parity-gaps.txt` with the reason a mock cannot reproduce it.
 
