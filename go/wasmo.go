@@ -55,6 +55,18 @@ func loadEngine(ctx context.Context) (*engine, error) {
 				panic(err)
 			}
 		}).Export("random_fill").
+			NewFunctionBuilder().WithFunc(func(ctx context.Context, m api.Module, metaPtr, metaLen, payloadPtr, payloadLen uint32) {
+			q, ok := ctx.Value(queueKey{}).(*[]invocation)
+			if !ok {
+				panic("wasmo: invoke outside a request")
+			}
+			meta, ok1 := m.Memory().Read(metaPtr, metaLen)
+			payload, ok2 := m.Memory().Read(payloadPtr, payloadLen)
+			if !ok1 || !ok2 {
+				panic("wasmo: invoke out of range")
+			}
+			*q = append(*q, invocation{meta: append([]byte(nil), meta...), payload: append([]byte(nil), payload...)})
+		}).Export("invoke").
 			Instantiate(ctx)
 		if err != nil {
 			engineErr = err
@@ -72,11 +84,15 @@ func loadEngine(ctx context.Context) (*engine, error) {
 
 // Mock is an isolated in-process AWS. It implements aws.HTTPClient.
 type Mock struct {
-	mu     sync.Mutex
-	module api.Module
-	alloc  api.Function
-	free   api.Function
-	handle api.Function
+	mu       sync.Mutex
+	module   api.Module
+	alloc    api.Function
+	free     api.Function
+	handle   api.Function
+	complete api.Function
+
+	fnMu      sync.Mutex
+	functions map[string]Handler
 }
 
 // New starts a Mock with empty state.
@@ -90,10 +106,11 @@ func New(ctx context.Context) (*Mock, error) {
 		return nil, err
 	}
 	return &Mock{
-		module: mod,
-		alloc:  mod.ExportedFunction("wasmo_alloc"),
-		free:   mod.ExportedFunction("wasmo_free"),
-		handle: mod.ExportedFunction("wasmo_handle"),
+		module:   mod,
+		alloc:    mod.ExportedFunction("wasmo_alloc"),
+		free:     mod.ExportedFunction("wasmo_free"),
+		handle:   mod.ExportedFunction("wasmo_handle"),
+		complete: mod.ExportedFunction("wasmo_complete"),
 	}, nil
 }
 
@@ -119,6 +136,7 @@ type requestMeta struct {
 }
 
 type responseMeta struct {
+	Await   string      `json:"await"`
 	Status  int         `json:"status"`
 	Headers [][2]string `json:"headers"`
 }
@@ -153,20 +171,10 @@ func (m *Mock) Do(r *http.Request) (*http.Response, error) {
 		return nil, err
 	}
 
-	ctx := r.Context()
-	m.mu.Lock()
-	frame, err := m.roundtrip(ctx, meta, body)
-	m.mu.Unlock()
+	res, respBody, err := m.exchange(r.Context(), meta, body)
 	if err != nil {
 		return nil, err
 	}
-
-	metaLen := binary.BigEndian.Uint32(frame[:4])
-	var res responseMeta
-	if err := json.Unmarshal(frame[4:4+metaLen], &res); err != nil {
-		return nil, fmt.Errorf("wasmo: decode response meta: %w", err)
-	}
-	respBody := frame[4+metaLen:]
 	h := http.Header{}
 	for _, kv := range res.Headers {
 		h.Add(kv[0], kv[1])
@@ -181,7 +189,46 @@ func (m *Mock) Do(r *http.Request) (*http.Response, error) {
 	}, nil
 }
 
-func (m *Mock) roundtrip(ctx context.Context, meta, body []byte) ([]byte, error) {
+// exchange calls handle and then runs every Lambda invocation the module
+// announces, outside the lock, answering each with wasmo_complete until the
+// response no longer waits for one.
+func (m *Mock) exchange(ctx context.Context, meta, body []byte) (*responseMeta, []byte, error) {
+	var pending []invocation
+	m.mu.Lock()
+	frame, err := m.roundtrip(ctx, m.handle, &pending, meta, body)
+	m.mu.Unlock()
+	if err != nil {
+		return nil, nil, err
+	}
+	for len(pending) > 0 {
+		inv := pending[0]
+		pending = pending[1:]
+		resMeta, payload, err := m.run(ctx, inv)
+		if err != nil {
+			return nil, nil, err
+		}
+		m.mu.Lock()
+		f, err := m.roundtrip(ctx, m.complete, &pending, resMeta, payload)
+		m.mu.Unlock()
+		if err != nil {
+			return nil, nil, err
+		}
+		if f != nil {
+			frame = f
+		}
+	}
+	metaLen := binary.BigEndian.Uint32(frame[:4])
+	var res responseMeta
+	if err := json.Unmarshal(frame[4:4+metaLen], &res); err != nil {
+		return nil, nil, fmt.Errorf("wasmo: decode response meta: %w", err)
+	}
+	if res.Await != "" {
+		return nil, nil, fmt.Errorf("wasmo: invocation %s was never answered", res.Await)
+	}
+	return &res, frame[4+metaLen:], nil
+}
+
+func (m *Mock) roundtrip(ctx context.Context, fn api.Function, pending *[]invocation, meta, body []byte) ([]byte, error) {
 	metaPtr, err := m.put(ctx, meta)
 	if err != nil {
 		return nil, err
@@ -190,9 +237,12 @@ func (m *Mock) roundtrip(ctx context.Context, meta, body []byte) ([]byte, error)
 	if err != nil {
 		return nil, err
 	}
-	res, err := m.handle.Call(ctx, uint64(metaPtr), uint64(len(meta)), uint64(bodyPtr), uint64(len(body)))
+	res, err := fn.Call(context.WithValue(ctx, queueKey{}, pending), uint64(metaPtr), uint64(len(meta)), uint64(bodyPtr), uint64(len(body)))
 	if err != nil {
 		return nil, err
+	}
+	if res[0] == 0 {
+		return nil, nil
 	}
 	ptr, length := uint32(res[0]>>32), uint32(res[0])
 	out, ok := m.module.Memory().Read(ptr, length)

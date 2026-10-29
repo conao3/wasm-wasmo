@@ -16,6 +16,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/iam v1.64.6
 	github.com/aws/aws-sdk-go-v2/service/kinesis v1.56.8
 	github.com/aws/aws-sdk-go-v2/service/kms v1.62.1
+	github.com/aws/aws-sdk-go-v2/service/lambda v1.113.4
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.114.6
 	github.com/aws/aws-sdk-go-v2/service/secretsmanager v1.50.7
 	github.com/aws/aws-sdk-go-v2/service/sns v1.47.7
