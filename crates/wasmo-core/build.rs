@@ -7,6 +7,7 @@ const MODELS: &[&str] = &[
     "sts",
     "sqs",
     "dynamodb",
+    "dynamodbstreams",
     "s3",
     "sns",
     "events",

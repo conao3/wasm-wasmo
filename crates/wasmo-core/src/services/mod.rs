@@ -12,10 +12,12 @@ pub mod ssm;
 pub mod sts;
 
 pub fn all() -> Vec<Box<dyn Service>> {
+    let dynamo = dynamodb::Regions::default();
     vec![
         Box::new(sts::Sts),
         Box::new(sqs::Sqs::default()),
-        Box::new(dynamodb::DynamoDb::default()),
+        Box::new(dynamodb::DynamoDb::new(dynamo.clone())),
+        Box::new(dynamodb::DynamoDbStreams::new(dynamo)),
         Box::new(s3::S3::default()),
         Box::new(sns::Sns::default()),
         Box::new(events::Events::default()),

@@ -5,9 +5,12 @@ mod items;
 mod legacy;
 mod number;
 mod partiql;
+mod streams;
 mod table;
 
+use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
+use std::rc::Rc;
 
 use serde_json::{Value, json};
 
@@ -131,6 +134,8 @@ pub struct Region {
     pub imports: BTreeMap<String, Value>,
     pub insights: BTreeMap<(String, Option<String>), String>,
     pub kinesis: BTreeMap<String, Vec<Value>>,
+    pub streams: BTreeMap<String, streams::Stream>,
+    pub stream_seq: u64,
 }
 
 impl Region {
@@ -205,9 +210,20 @@ pub fn require_table_name(input: &Value) -> Result<&str, AwsError> {
         })
 }
 
+pub use streams::DynamoDbStreams;
+
+/// Tables per `(account, region)`, shared with DynamoDB Streams.
+pub type Regions = Rc<RefCell<HashMap<(String, String), Region>>>;
+
 #[derive(Default)]
 pub struct DynamoDb {
-    regions: HashMap<(String, String), Region>,
+    regions: Regions,
+}
+
+impl DynamoDb {
+    pub fn new(regions: Regions) -> Self {
+        Self { regions }
+    }
 }
 
 impl Service for DynamoDb {
@@ -220,88 +236,99 @@ impl Service for DynamoDb {
     }
 
     fn call(&mut self, ctx: &mut Ctx<'_>, operation: &str, input: Value) -> OpResult {
-        let region = self
-            .regions
+        let mut regions = self.regions.borrow_mut();
+        let region = regions
             .entry((ctx.account.clone(), ctx.region.clone()))
             .or_default();
+        let expiring = streams::snapshot(region, operation, true);
         region.tick(ctx.now_ms());
-        let input = &input;
-        match operation {
-            "CreateTable" => table::create(region, ctx, input),
-            "DescribeTable" => table::describe(region, ctx, input),
-            "ListTables" => table::list(region, input),
-            "UpdateTable" => table::update(region, ctx, input),
-            "DeleteTable" => table::delete(region, ctx, input),
-            "UpdateTimeToLive" => table::update_ttl(region, input),
-            "DescribeTimeToLive" => table::describe_ttl(region, input),
-            "TagResource" => table::tag(region, input),
-            "UntagResource" => table::untag(region, input),
-            "ListTagsOfResource" => table::list_tags(region, input),
-            "DescribeLimits" => Ok(json!({
-                "AccountMaxReadCapacityUnits": 80000,
-                "AccountMaxWriteCapacityUnits": 80000,
-                "TableMaxReadCapacityUnits": 40000,
-                "TableMaxWriteCapacityUnits": 40000,
-            })),
-            "DescribeEndpoints" => Ok(json!({
-                "Endpoints": [{
-                    "Address": format!("dynamodb.{}.amazonaws.com", ctx.region),
-                    "CachePeriodInMinutes": 1440,
-                }],
-            })),
-            "PutItem" => items::put(region, input),
-            "GetItem" => items::get(region, input),
-            "UpdateItem" => items::update(region, input),
-            "DeleteItem" => items::delete(region, input),
-            "Query" => items::query(region, input),
-            "Scan" => items::scan(region, input),
-            "BatchGetItem" => items::batch_get(region, input),
-            "BatchWriteItem" => items::batch_write(region, input),
-            "TransactGetItems" => items::transact_get(region, input),
-            "TransactWriteItems" => items::transact_write(region, ctx, input),
-            "ExecuteStatement" => partiql::execute(region, input),
-            "BatchExecuteStatement" => partiql::batch_execute(region, input),
-            "ExecuteTransaction" => partiql::execute_transaction(region, input),
-            "CreateBackup" => admin::create_backup(region, ctx, input),
-            "DescribeBackup" => admin::describe_backup(region, ctx, input),
-            "ListBackups" => admin::list_backups(region, ctx, input),
-            "DeleteBackup" => admin::delete_backup(region, ctx, input),
-            "RestoreTableFromBackup" => admin::restore_from_backup(region, ctx, input),
-            "RestoreTableToPointInTime" => admin::restore_to_point_in_time(region, ctx, input),
-            "UpdateContinuousBackups" => admin::update_continuous_backups(region, ctx, input),
-            "DescribeContinuousBackups" => admin::describe_continuous_backups(region, ctx, input),
-            "PutResourcePolicy" => admin::put_policy(region, ctx, input),
-            "GetResourcePolicy" => admin::get_policy(region, input),
-            "DeleteResourcePolicy" => admin::delete_policy(region, input),
-            "CreateGlobalTable" => admin::create_global_table(region, ctx, input),
-            "DescribeGlobalTable" => admin::describe_global_table(region, ctx, input),
-            "UpdateGlobalTable" => admin::update_global_table(region, ctx, input),
-            "ListGlobalTables" => admin::list_global_tables(region, input),
-            "DescribeGlobalTableSettings" | "UpdateGlobalTableSettings" => {
-                admin::global_table_settings(region, input)
-            }
-            "ExportTableToPointInTime" => admin::export_table(region, ctx, input),
-            "DescribeExport" => admin::describe_export(region, input),
-            "ListExports" => admin::list_exports(region, input),
-            "ImportTable" => admin::import_table(region, ctx, input),
-            "DescribeImport" => admin::describe_import(region, input),
-            "ListImports" => admin::list_imports(region, input),
-            "EnableKinesisStreamingDestination"
-            | "DisableKinesisStreamingDestination"
-            | "UpdateKinesisStreamingDestination" => {
-                admin::kinesis_destination(region, operation, input)
-            }
-            "DescribeKinesisStreamingDestination" => admin::describe_kinesis(region, input),
-            "DescribeContributorInsights" => admin::describe_insights(region, input),
-            "UpdateContributorInsights" => admin::update_insights(region, input),
-            "ListContributorInsights" => admin::list_insights(region, input),
-            "DescribeTableReplicaAutoScaling" | "UpdateTableReplicaAutoScaling" => {
-                admin::replica_auto_scaling(region, input)
-            }
-            other => Err(err(
-                "UnknownOperationException",
-                format!("wasmo: {other} is not implemented"),
-            )),
+        streams::record(region, ctx, expiring, true);
+        let before = streams::snapshot(region, operation, false);
+        let result = dispatch(region, ctx, operation, &input);
+        streams::sync(region, ctx);
+        if result.is_ok() {
+            streams::record(region, ctx, before, false);
         }
+        result
+    }
+}
+
+fn dispatch(region: &mut Region, ctx: &mut Ctx<'_>, operation: &str, input: &Value) -> OpResult {
+    match operation {
+        "CreateTable" => table::create(region, ctx, input),
+        "DescribeTable" => table::describe(region, ctx, input),
+        "ListTables" => table::list(region, input),
+        "UpdateTable" => table::update(region, ctx, input),
+        "DeleteTable" => table::delete(region, ctx, input),
+        "UpdateTimeToLive" => table::update_ttl(region, input),
+        "DescribeTimeToLive" => table::describe_ttl(region, input),
+        "TagResource" => table::tag(region, input),
+        "UntagResource" => table::untag(region, input),
+        "ListTagsOfResource" => table::list_tags(region, input),
+        "DescribeLimits" => Ok(json!({
+            "AccountMaxReadCapacityUnits": 80000,
+            "AccountMaxWriteCapacityUnits": 80000,
+            "TableMaxReadCapacityUnits": 40000,
+            "TableMaxWriteCapacityUnits": 40000,
+        })),
+        "DescribeEndpoints" => Ok(json!({
+            "Endpoints": [{
+                "Address": format!("dynamodb.{}.amazonaws.com", ctx.region),
+                "CachePeriodInMinutes": 1440,
+            }],
+        })),
+        "PutItem" => items::put(region, input),
+        "GetItem" => items::get(region, input),
+        "UpdateItem" => items::update(region, input),
+        "DeleteItem" => items::delete(region, input),
+        "Query" => items::query(region, input),
+        "Scan" => items::scan(region, input),
+        "BatchGetItem" => items::batch_get(region, input),
+        "BatchWriteItem" => items::batch_write(region, input),
+        "TransactGetItems" => items::transact_get(region, input),
+        "TransactWriteItems" => items::transact_write(region, ctx, input),
+        "ExecuteStatement" => partiql::execute(region, input),
+        "BatchExecuteStatement" => partiql::batch_execute(region, input),
+        "ExecuteTransaction" => partiql::execute_transaction(region, input),
+        "CreateBackup" => admin::create_backup(region, ctx, input),
+        "DescribeBackup" => admin::describe_backup(region, ctx, input),
+        "ListBackups" => admin::list_backups(region, ctx, input),
+        "DeleteBackup" => admin::delete_backup(region, ctx, input),
+        "RestoreTableFromBackup" => admin::restore_from_backup(region, ctx, input),
+        "RestoreTableToPointInTime" => admin::restore_to_point_in_time(region, ctx, input),
+        "UpdateContinuousBackups" => admin::update_continuous_backups(region, ctx, input),
+        "DescribeContinuousBackups" => admin::describe_continuous_backups(region, ctx, input),
+        "PutResourcePolicy" => admin::put_policy(region, ctx, input),
+        "GetResourcePolicy" => admin::get_policy(region, input),
+        "DeleteResourcePolicy" => admin::delete_policy(region, input),
+        "CreateGlobalTable" => admin::create_global_table(region, ctx, input),
+        "DescribeGlobalTable" => admin::describe_global_table(region, ctx, input),
+        "UpdateGlobalTable" => admin::update_global_table(region, ctx, input),
+        "ListGlobalTables" => admin::list_global_tables(region, input),
+        "DescribeGlobalTableSettings" | "UpdateGlobalTableSettings" => {
+            admin::global_table_settings(region, input)
+        }
+        "ExportTableToPointInTime" => admin::export_table(region, ctx, input),
+        "DescribeExport" => admin::describe_export(region, input),
+        "ListExports" => admin::list_exports(region, input),
+        "ImportTable" => admin::import_table(region, ctx, input),
+        "DescribeImport" => admin::describe_import(region, input),
+        "ListImports" => admin::list_imports(region, input),
+        "EnableKinesisStreamingDestination"
+        | "DisableKinesisStreamingDestination"
+        | "UpdateKinesisStreamingDestination" => {
+            admin::kinesis_destination(region, operation, input)
+        }
+        "DescribeKinesisStreamingDestination" => admin::describe_kinesis(region, input),
+        "DescribeContributorInsights" => admin::describe_insights(region, input),
+        "UpdateContributorInsights" => admin::update_insights(region, input),
+        "ListContributorInsights" => admin::list_insights(region, input),
+        "DescribeTableReplicaAutoScaling" | "UpdateTableReplicaAutoScaling" => {
+            admin::replica_auto_scaling(region, input)
+        }
+        other => Err(err(
+            "UnknownOperationException",
+            format!("wasmo: {other} is not implemented"),
+        )),
     }
 }
