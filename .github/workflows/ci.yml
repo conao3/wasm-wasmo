@@ -5,6 +5,9 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   check:
     runs-on: ubuntu-latest
@@ -25,3 +28,80 @@ jobs:
           key: ${{ runner.os }}-${{ hashFiles('Cargo.lock', 'go/go.sum', 'js/package-lock.json', 'jvm/pom.xml', 'dotnet/**/*.csproj', 'ruby/Gemfile.lock', 'flake.lock') }}
       - run: nix develop --command make lint
       - run: nix develop --command make test
+      - uses: actions/upload-artifact@v7
+        with:
+          name: wasmo-wasm
+          path: target/wasm32-unknown-unknown/release/wasmo_wasm.wasm
+          if-no-files-found: error
+
+  adapter:
+    needs: check
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        adapter: [go, js, jvm, dotnet, python, ruby]
+    runs-on: ${{ matrix.os }}
+    name: ${{ matrix.adapter }} (${{ matrix.os }}, oldest runtime)
+    env:
+      WASMO_WASM: ${{ github.workspace }}/wasmo.wasm
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: wasmo-wasm
+      - run: mv wasmo_wasm.wasm wasmo.wasm
+
+      - if: matrix.adapter == 'go'
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go/go.mod
+          cache-dependency-path: go/go.sum
+      - if: matrix.adapter == 'go'
+        run: make test-go
+
+      - if: matrix.adapter == 'js'
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: js/package-lock.json
+      - if: matrix.adapter == 'js'
+        uses: oven-sh/setup-bun@v2
+      - if: matrix.adapter == 'js'
+        run: make test-js
+
+      - if: matrix.adapter == 'jvm'
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: maven
+          cache-dependency-path: jvm/pom.xml
+      - if: matrix.adapter == 'jvm'
+        run: make test-jvm
+
+      - if: matrix.adapter == 'dotnet'
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 8.0.x
+      - if: matrix.adapter == 'dotnet'
+        run: make test-dotnet
+
+      - if: matrix.adapter == 'python'
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.10"
+      - if: matrix.adapter == 'python'
+        run: |
+          make wasm
+          python -m pip install ./python pytest
+          make test-python
+
+      - if: matrix.adapter == 'ruby'
+        uses: ruby/setup-ruby@v1
+        with:
+          working-directory: ruby
+          ruby-version: "3.3"
+      - if: matrix.adapter == 'ruby'
+        run: make test-ruby
