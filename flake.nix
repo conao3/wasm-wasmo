@@ -49,6 +49,14 @@
               pkgs.jdk17
               pkgs.maven
               pkgs.dotnet-sdk_8
+              (pkgs.python3.withPackages (ps: [
+                ps.boto3
+                ps.build
+                ps.hatchling
+                ps.pytest
+                ps.wasmtime
+              ]))
+              pkgs.ruff
             ];
             DOTNET_CLI_TELEMETRY_OPTOUT = "1";
             DOTNET_NOLOGO = "1";
