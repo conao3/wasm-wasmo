@@ -12,3 +12,6 @@
 __pycache__/
 .pytest_cache/
 .ruff_cache/
+/ruby/lib/wasmo/wasmo.wasm
+/ruby/vendor/
+/ruby/*.gem
