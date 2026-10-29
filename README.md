@@ -34,7 +34,7 @@ await ddb.PutItemAsync("users", item);
 var out = await ddb.GetItemAsync("users", key);
 ```
 
-> **Status:** early development. The adapters for Go (AWS SDK for Go v2), JavaScript (AWS SDK for JavaScript v3), the JVM (AWS SDK for Java v2), .NET (AWS SDK for .NET v4), Python (boto3), and Ruby (AWS SDK for Ruby v3) are each tested through their SDK against all 16 emulated services: STS, SQS, DynamoDB, S3, SNS, EventBridge, Secrets Manager, SSM Parameter Store, KMS, IAM, CloudWatch, CloudWatch Logs, Kinesis, Data Firehose, DynamoDB Streams, and Lambda, whose function handlers are registered in the test's own language. Go covers each service in depth; the other five run at least one end-to-end scenario per service (cross-service delivery for SNS, EventBridge, and Firehose). None is published yet.
+> **Status:** early development. The adapters for Go (AWS SDK for Go v2), JavaScript (AWS SDK for JavaScript v3), the JVM (AWS SDK for Java v2), .NET (AWS SDK for .NET v4), Python (boto3), and Ruby (AWS SDK for Ruby v3) are each tested through their SDK against all 19 emulated services: STS, SQS, DynamoDB, S3, SNS, EventBridge, Secrets Manager, SSM Parameter Store, KMS, IAM, CloudWatch, CloudWatch Logs, Kinesis, Data Firehose, DynamoDB Streams, Lambda, whose function handlers are registered in the test's own language, Step Functions, API Gateway REST APIs, and API Gateway HTTP APIs. Go covers each service in depth; the other five run at least one end-to-end scenario per service (cross-service delivery for SNS, EventBridge, and Firehose, a state machine that calls a registered handler, and a REST API invoked over HTTP). None is published yet.
 
 | Service | Coverage |
 | --- | --- |
@@ -54,8 +54,13 @@ var out = await ddb.GetItemAsync("users", key);
 | Data Firehose | Delivery streams, PutRecord and PutRecordBatch written to the S3 destination (one object per batch, GZIP when configured), destination updates, tags, encryption |
 | DynamoDB Streams | INSERT, MODIFY, and REMOVE records for tables with a StreamSpecification in every view type, DescribeStream, ListStreams, shard iterators, GetRecords |
 | Lambda | Functions bound by name to handlers registered in the test's language, versions and aliases with weighted routing, Invoke (RequestResponse, Event, DryRun, `X-Amz-Function-Error`, LogType Tail, timeouts), InvokeAsync, retries and OnSuccess/OnFailure destinations and dead-letter queues for async invocations, reserved concurrency (0 throttles), permissions, event source mappings for SQS (batch size, filters, partial batch responses), Kinesis, and DynamoDB Streams (retries, OnFailure destinations), layers, function URLs, code signing configs, tags |
+| Step Functions | STANDARD and EXPRESS state machines with versions and aliases, StartExecution, StartSyncExecution, StopExecution, RedriveExecution, DescribeExecution, ListExecutions, GetExecutionHistory, activities, task tokens, map runs, TestState, ValidateStateMachineDefinition, tags; an ASL interpreter (JSONPath) for Pass, Task, Choice, Wait, Succeed, Fail, Parallel, and Map (inline and distributed, ItemReader from S3, ItemBatcher, tolerated failures), InputPath/Parameters/ResultSelector/ResultPath/OutputPath, intrinsic functions, Retry with backoff and Catch; tasks call Lambda, SQS, SNS, DynamoDB, EventBridge, nested executions (`.sync`, `.sync:2`), and any emulated service through `aws-sdk:*`, with `.waitForTaskToken` |
+| API Gateway | REST APIs with resources, methods, integrations and their responses, deployments, stages, authorizers, models, request validators, gateway responses, documentation, API keys, usage plans, custom domains, VPC links, tags, OpenAPI import and export; invoked through `execute-api` with Lambda proxy, Lambda, MOCK, and AWS service integrations, VTL mapping templates, TOKEN/REQUEST Lambda authorizers and Cognito user pools, API keys, request validation, stage variables, path parameters and `{proxy+}` |
+| API Gateway v2 | HTTP and WebSocket APIs with routes, integrations, stages, deployments, authorizers, models, custom domains and API mappings, VPC links, portals, tags, quick create, OpenAPI import and export; HTTP APIs invoked through `execute-api` with Lambda proxy payloads 1.0 and 2.0, JWT and Lambda authorizers, CORS, parameter mapping, and SQS, EventBridge, Kinesis, and Step Functions integration subtypes |
 
-Services deliver to each other inside a mock: SNS to SQS and Lambda, EventBridge to SQS, SNS, and Lambda, S3 notifications to SQS, SNS, EventBridge, and Lambda, CloudWatch Logs subscription filters to Kinesis, Firehose, Logs destinations, and Lambda (gzipped `awslogs` payloads), SQS, Kinesis, and DynamoDB Streams event source mappings to Lambda, Lambda async destinations to SQS, SNS, EventBridge, and Lambda, Logs metric filters to CloudWatch, Firehose and Logs export tasks to S3, and CloudWatch alarm actions to SNS and EventBridge happen synchronously during the triggering call.
+Services deliver to each other inside a mock: SNS to SQS and Lambda, EventBridge to SQS, SNS, Lambda, and Step Functions, S3 notifications to SQS, SNS, EventBridge, and Lambda, CloudWatch Logs subscription filters to Kinesis, Firehose, Logs destinations, and Lambda (gzipped `awslogs` payloads), SQS, Kinesis, and DynamoDB Streams event source mappings to Lambda, Lambda async destinations to SQS, SNS, EventBridge, and Lambda, Logs metric filters to CloudWatch, Firehose and Logs export tasks to S3, CloudWatch alarm actions to SNS and EventBridge, and Step Functions execution status changes to EventBridge happen synchronously during the triggering call.
+
+Services also call each other the way an SDK would: a Step Functions task, an API Gateway integration or Lambda authorizer sends an operation to another service in the same account and region and continues with its output or error. A call that reaches a Lambda function waits for the registered handler, so a state machine or an API answers only after the handler returned.
 
 The protocol codecs (awsQuery, ec2, awsJson 1.0/1.1, rest-json, rest-xml, Smithy RPC v2 CBOR) are checked against botocore's protocol test suite; every case either passes or is listed in `crates/wasmo-core/tests/conformance-gaps.txt` as client-only behaviour.
 
@@ -83,7 +88,7 @@ The module needs no WASI. It imports three host functions and exports four:
 | export | `wasmo_handle(meta_ptr, meta_len, body_ptr, body_len) -> u64` | Takes ownership of both buffers and returns `(ptr << 32) \| len` of a response frame, which the host frees |
 | export | `wasmo_complete(meta_ptr, meta_len, payload_ptr, payload_len) -> u64` | Answers one queued invocation. Takes ownership of both buffers and returns 0, or the response frame of the request that waited for that invocation |
 
-A request is a JSON meta (`{method, url, headers}`) plus raw body bytes. A response frame is a big-endian `u32` meta length, the meta JSON, then the body. The meta is `{status, headers}`, or `{"await": "<invocation id>"}` when the response depends on a synchronous Invoke that is still queued.
+A request is a JSON meta (`{method, url, headers}`) plus raw body bytes. A response frame is a big-endian `u32` meta length, the meta JSON, then the body. The meta is `{status, headers}`, or `{"await": "<token>"}` when the response depends on an invocation that is still queued: a synchronous Invoke, or a `StartSyncExecution`, `TestInvokeMethod`, or `execute-api` request whose state machine, integration, or authorizer reaches a Lambda handler.
 
 The invocation meta is a JSON object with `id`, `functionName`, `functionVersion`, `invokedFunctionArn`, `memoryLimitInMB`, `timeoutSeconds`, `deadlineMs`, `awsRequestId`, `logGroupName`, `logStreamName`, `invocationType`, `environment` (the function's variables plus `AWS_REGION`, `AWS_LAMBDA_FUNCTION_NAME`, and the other variables Lambda sets), `account`, `region`, and `clientContext` when the caller sent one; the payload is the event JSON. The completion meta is `{id, registered, error, log}`: `registered: false` when no handler is bound to the function name (the invocation fails with `Runtime.HandlerNotFound`), `error: {type, message, stackTrace}` when the handler failed (the payload is then ignored and the function error is `{"errorMessage", "errorType", "stackTrace"}`), and `log` for the lines the handler wrote; the completion payload is the handler's JSON response.
 
@@ -141,6 +146,47 @@ end
 ```
 
 Event invocations retry a failed handler up to `MaximumRetryAttempts` (2 by default) and then deliver the invocation record to the OnFailure destination and the function's dead-letter queue; successes go to the OnSuccess destination. SQS event source mappings consume the queue after every request, in batches of `BatchSize`, delete the messages a batch handled (all of them, or all but the `batchItemFailures` with `ReportBatchItemFailures`), and drop messages that no `FilterCriteria` pattern matches. Kinesis and DynamoDB Streams mappings read every shard from `StartingPosition`, and retry a failed batch on the next request up to `MaximumRetryAttempts` before sending it to the OnFailure destination.
+
+## Step Functions
+
+Executions run inside the call that starts them. States without tasks finish before `StartExecution` returns; a Task that invokes a Lambda function (`arn:aws:states:::lambda:invoke` or a function ARN) waits for the registered handler, so by the time the SDK call that started the execution returns, the execution has advanced as far as its handlers let it. `StartSyncExecution` answers with the finished execution. Wait states and Retry delays (`IntervalSeconds`, `BackoffRate`, `MaxDelaySeconds`, `JitterStrategy`) advance the execution's own clock instead of sleeping, so `stopDate` and the history timestamps show the waited time.
+
+A handler's error type is the error name Retry and Catch match (`errorType`: the Go error's type name, the JavaScript error's `name`, the Java exception's fully qualified class name, the .NET exception's type name, the Python exception's class name, the Ruby exception's class name). Service integrations fail with the AWS SDK for Java exception names (`DynamoDB.ConditionalCheckFailedException`, `Lambda.ResourceNotFoundException`, `Sfn.StateMachineDoesNotExistException`). `.waitForTaskToken` tasks and activities wait for `SendTaskSuccess` or `SendTaskFailure`, which a handler can send to the same mock. EventBridge rules can target a state machine, and every STANDARD execution reports `Step Functions Execution Status Change` to the default bus. The JSONata query language is not interpreted; an execution that uses it fails with `States.Runtime`.
+
+```go
+m.RegisterFunction("charge", func(ctx context.Context, event json.RawMessage) (json.RawMessage, error) {
+	return json.RawMessage(`{"charged":true}`), nil
+})
+out, _ := sfnClient.StartSyncExecution(ctx, &sfn.StartSyncExecutionInput{
+	StateMachineArn: machineArn,
+	Input:           aws.String(`{"order":"o-1"}`),
+})
+// *out.Output is the execution output after the handler ran
+```
+
+## API Gateway
+
+REST APIs (API Gateway) and HTTP APIs (API Gateway v2) answer requests to their `execute-api` endpoint. A test sends an ordinary, unsigned HTTP request to `https://{api-id}.execute-api.{region}.amazonaws.com/{stage}/{path}` through the mock's raw request entry point; `http://{api-id}.execute-api.wasmo.local/{stage}/{path}` and the path form `http://wasmo.local/restapis/{api-id}/{stage}/_user_request_/{path}` reach the same API. HTTP APIs with a `$default` stage take the path without a stage segment. REST APIs serve the deployment their stage points to; HTTP API stages with `AutoDeploy` serve the current routes.
+
+| Language | Raw request |
+| --- | --- |
+| Go | `req, _ := http.NewRequest("GET", url, nil)`, then `m.Do(req)` |
+| JavaScript | `aws.clientConfig.requestHandler.handle({ protocol: "https:", hostname, path, method: "GET", headers: { host: hostname }, query: {} })` returns `{ response }` with `statusCode`, `headers`, and a `body` stream |
+| JVM | `mock.prepareRequest(HttpExecuteRequest.builder().request(SdkHttpFullRequest.builder().uri(URI.create(url)).method(SdkHttpMethod.GET).build()).build()).call()` |
+| .NET | `new HttpClient(mock.Handler, disposeHandler: false).GetAsync(url)` |
+| Python | `aws.fetch(url, method="GET", headers=..., body=...)` returns `status`, `headers`, and `body` |
+| Ruby | `aws.request("GET", url, headers, body)` returns `status`, header pairs, and `body` |
+
+Lambda proxy integrations call the handler registered for the function in the integration URI (`arn:aws:apigateway:{region}:lambda:path/2015-03-31/functions/{function-arn}/invocations`, or the function ARN for HTTP APIs) with the payload format the integration names, and the response is built from the returned `statusCode`, `headers`, `multiValueHeaders`, `cookies`, `body`, and `isBase64Encoded` (payload 2.0 also takes any other JSON as a 200 body). REST API MOCK and AWS integrations run their mapping templates with the VTL subset API Gateway uses (`$input.json`, `$input.path`, `$input.params`, `$input.body`, `$util`, `$context`, `$stageVariables`, `#set`, `#if`, `#foreach`). AWS integrations (`arn:aws:apigateway:{region}:{service}:action/{Action}`, SQS and S3 `path/` URIs) and HTTP API integration subtypes call the emulated service and answer with its output as JSON. HTTP and HTTP_PROXY integrations, which would leave the process, answer 502. JWT authorizers decode the token and check its issuer, audience, expiry, and scopes without verifying the signature; Cognito user pool authorizers read the token's claims the same way. WebSocket APIs have a control plane but take no connections.
+
+```go
+m.RegisterFunction("pets", func(ctx context.Context, event json.RawMessage) (json.RawMessage, error) {
+	return json.RawMessage(`{"statusCode":200,"body":"{\"id\":\"7\"}"}`), nil
+})
+req, _ := http.NewRequest("GET", "https://"+apiID+".execute-api.us-east-1.amazonaws.com/prod/pets/7", nil)
+res, _ := m.Do(req)
+// res.StatusCode is 200 and the body is the handler's body
+```
 
 ## JavaScript / TypeScript
 
