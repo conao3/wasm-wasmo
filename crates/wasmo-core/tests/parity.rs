@@ -426,10 +426,14 @@ impl Client {
                 } else {
                     doc.child("Error").unwrap_or(&doc)
                 };
-                error
+                let code = error
                     .child("Code")
                     .map(|c| c.text.clone())
-                    .unwrap_or_default()
+                    .unwrap_or_default();
+                self.model
+                    .registry
+                    .error_shape_for_code(&code)
+                    .map_or(code, str::to_string)
             }
         }
     }
@@ -440,6 +444,39 @@ fn header<'a>(res: &'a Response, name: &str) -> Option<&'a str> {
         .iter()
         .find(|(k, _)| k.eq_ignore_ascii_case(name))
         .map(|(_, v)| v.as_str())
+}
+
+/// Marks blob positions of a decoded response as `{"$base64": ...}` so a
+/// later `${ref}` substitutes bytes, as the SDK v3 runner does with
+/// `Uint8Array`.
+fn tag_blobs(reg: &Registry, v: &Value, shape: &Shape) -> Value {
+    match (shape.kind.as_str(), v) {
+        ("blob", Value::String(s)) => serde_json::json!({ "$base64": s }),
+        ("structure", Value::Object(o)) => Value::Object(
+            o.iter()
+                .map(|(k, x)| {
+                    let x = match shape.members.get(k) {
+                        Some(m) => tag_blobs(reg, x, reg.member_shape(m)),
+                        None => x.clone(),
+                    };
+                    (k.clone(), x)
+                })
+                .collect(),
+        ),
+        ("list", Value::Array(a)) => {
+            let item = reg.member_shape(shape.member.as_deref().unwrap());
+            Value::Array(a.iter().map(|x| tag_blobs(reg, x, item)).collect())
+        }
+        ("map", Value::Object(o)) => {
+            let value = reg.member_shape(shape.value.as_deref().unwrap());
+            Value::Object(
+                o.iter()
+                    .map(|(k, x)| (k.clone(), tag_blobs(reg, x, value)))
+                    .collect(),
+            )
+        }
+        _ => v.clone(),
+    }
 }
 
 /// Converts an SDK v3 input value into wasmo parameters: blobs given as a
@@ -714,7 +751,12 @@ fn run_fixture(client: &Client, fixture: &Value) -> Result<(), String> {
             ))
         })?;
         if let Some(key) = step["saveAs"].as_str() {
-            saved.insert(key.to_string(), result.clone());
+            let reg = &client.model.registry;
+            let saved_value = match &op.output {
+                Some(o) => tag_blobs(reg, &result, reg.shape(&o.shape)),
+                None => result.clone(),
+            };
+            saved.insert(key.to_string(), saved_value);
         }
         compare(&result, step).map_err(fail)?;
     }
@@ -767,7 +809,16 @@ fn parity_fixtures() {
         let fixture: Value = serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap();
         let package = fixture["clientPackage"].as_str().unwrap_or_default();
         let service = package.strip_prefix("@aws-sdk/client-").unwrap_or(package);
-        let Some(client) = clients.iter().find(|c| c.signing_name == service) else {
+        let normalized: String = service.chars().filter(|c| *c != '-').collect();
+        let Some(client) = clients.iter().find(|c| {
+            c.signing_name == service
+                || c.model.metadata.service_id.as_deref().is_some_and(|id| {
+                    id.chars()
+                        .filter(|c| !c.is_whitespace())
+                        .collect::<String>()
+                        .eq_ignore_ascii_case(&normalized)
+                })
+        }) else {
             skipped += 1;
             continue;
         };

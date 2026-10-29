@@ -176,6 +176,14 @@ impl Registry {
         self.shapes.get(name)
     }
 
+    /// Name of the error shape whose wire code (`error.code`) is `code`.
+    pub fn error_shape_for_code(&self, code: &str) -> Option<&str> {
+        self.shapes
+            .iter()
+            .find(|(_, s)| s.error.as_ref().and_then(|e| e.code.as_deref()) == Some(code))
+            .map(|(n, _)| n.as_str())
+    }
+
     pub fn get_key_value(&self, name: &str) -> Option<(&str, &Shape)> {
         self.shapes
             .get_key_value(name)
