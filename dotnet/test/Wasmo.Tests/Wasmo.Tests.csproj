@@ -5,11 +5,20 @@
     <IsTestProject>true</IsTestProject>
   </PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="AWSSDK.CloudWatch" Version="4.0.107.2" />
+    <PackageReference Include="AWSSDK.CloudWatchLogs" Version="4.0.106.2" />
+    <PackageReference Include="AWSSDK.DynamoDBStreams" Version="4.0.101.3" />
     <PackageReference Include="AWSSDK.DynamoDBv2" Version="4.0.109.3" />
+    <PackageReference Include="AWSSDK.EventBridge" Version="4.0.101.8" />
+    <PackageReference Include="AWSSDK.IdentityManagement" Version="4.0.103.13" />
     <PackageReference Include="AWSSDK.KeyManagementService" Version="4.0.101" />
+    <PackageReference Include="AWSSDK.Kinesis" Version="4.0.104.7" />
+    <PackageReference Include="AWSSDK.KinesisFirehose" Version="4.0.100.21" />
     <PackageReference Include="AWSSDK.S3" Version="4.0.104.7" />
+    <PackageReference Include="AWSSDK.SecretsManager" Version="4.0.100.22" />
     <PackageReference Include="AWSSDK.SecurityToken" Version="4.0.101.7" />
     <PackageReference Include="AWSSDK.SimpleNotificationService" Version="4.0.100.22" />
+    <PackageReference Include="AWSSDK.SimpleSystemsManagement" Version="4.0.104.7" />
     <PackageReference Include="AWSSDK.SQS" Version="4.0.100.21" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.11.0" />
     <PackageReference Include="xunit" Version="2.9.3" />
