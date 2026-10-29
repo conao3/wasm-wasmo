@@ -34,7 +34,7 @@ await ddb.PutItemAsync("users", item);
 var out = await ddb.GetItemAsync("users", key);
 ```
 
-> **Status:** early development. The adapters for Go (AWS SDK for Go v2), JavaScript (AWS SDK for JavaScript v3), the JVM (AWS SDK for Java v2), .NET (AWS SDK for .NET v4), Python (boto3), and Ruby (AWS SDK for Ruby v3) are each tested through their SDK against all 19 emulated services: STS, SQS, DynamoDB, S3, SNS, EventBridge, Secrets Manager, SSM Parameter Store, KMS, IAM, CloudWatch, CloudWatch Logs, Kinesis, Data Firehose, DynamoDB Streams, Lambda, whose function handlers are registered in the test's own language, Step Functions, API Gateway REST APIs, and API Gateway HTTP APIs. Go covers each service in depth; the other five run at least one end-to-end scenario per service (cross-service delivery for SNS, EventBridge, and Firehose, a state machine that calls a registered handler, and a REST API invoked over HTTP). None is published yet.
+> **Status:** early development. The adapters for Go (AWS SDK for Go v2), JavaScript (AWS SDK for JavaScript v3), the JVM (AWS SDK for Java v2), .NET (AWS SDK for .NET v4), Python (boto3), and Ruby (AWS SDK for Ruby v3) are each tested through their SDK against all 19 emulated services: STS, SQS, DynamoDB, S3, SNS, EventBridge, Secrets Manager, SSM Parameter Store, KMS, IAM, CloudWatch, CloudWatch Logs, Kinesis, Data Firehose, DynamoDB Streams, Lambda, whose function handlers are registered in the test's own language, Step Functions, API Gateway REST APIs, and API Gateway HTTP APIs. Go covers each service in depth; the other five run at least one end-to-end scenario per service (cross-service delivery for SNS, EventBridge, and Firehose, a state machine that calls a registered handler, and a REST API invoked over HTTP).
 
 | Service | Coverage |
 | --- | --- |
@@ -65,6 +65,19 @@ Services also call each other the way an SDK would: a Step Functions task, an AP
 The protocol codecs (awsQuery, ec2, awsJson 1.0/1.1, rest-json, rest-xml, Smithy RPC v2 CBOR) are checked against botocore's protocol test suite; every case either passes or is listed in `crates/wasmo-core/tests/conformance-gaps.txt` as client-only behaviour.
 
 Service behaviour is checked against the parity fixtures of [bun-bunsai](https://github.com/conao3/bun-bunsai), whose expectations come from real AWS (LocalStack snapshot recordings, moto `@aws_verified` tests, and the AWS API reference). Each fixture replays AWS SDK commands as wire requests through the emulator; every fixture of an emulated service either passes or is listed in `crates/wasmo-core/tests/parity-gaps.txt` with the reason a mock cannot reproduce it.
+
+## Install
+
+| Language | Package | Install |
+| --- | --- | --- |
+| Go | `github.com/conao3/wasm-wasmo/go` | `go get github.com/conao3/wasm-wasmo/go` |
+| JavaScript / TypeScript | [`@conao3/wasmo`](https://www.npmjs.com/package/@conao3/wasmo) | `npm install --save-dev @conao3/wasmo` |
+| JVM | [`io.github.conao3:wasmo`](https://central.sonatype.com/artifact/io.github.conao3/wasmo) | Maven `<dependency><groupId>io.github.conao3</groupId><artifactId>wasmo</artifactId><version>0.1.1</version><scope>test</scope></dependency>` |
+| .NET | [`Wasmo`](https://www.nuget.org/packages/Wasmo) | `dotnet add package Wasmo` |
+| Python | [`wasmo`](https://pypi.org/project/wasmo/) | `pip install wasmo` |
+| Ruby | [`wasmo`](https://rubygems.org/gems/wasmo) | `gem install wasmo` |
+
+Every package of one version embeds the same `wasmo.wasm`. On the JVM, keep the AWS SDK for Java v2 modules on one version, for example by importing `software.amazon.awssdk:bom`; mixing an older SDK module with the newer ones wasmo pulls in fails at class initialization.
 
 ## How it works
 
