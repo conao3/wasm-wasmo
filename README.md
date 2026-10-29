@@ -341,8 +341,10 @@ Tools come from the Nix dev shell.
 ```sh
 nix develop
 make test   # cargo test + build wasm + go test + node --test + bun test + mvn verify + dotnet test + pytest + rake test
-make lint   # rustfmt, clippy, gofmt, go vet, tsc, prettier, google-java-format, javac -Xlint, dotnet format, dotnet build (warnings as errors), ruff, rubocop
+make lint   # VERSION check, actionlint, shellcheck, rustfmt, clippy, gofmt, go vet, tsc, prettier, google-java-format, javac -Xlint, dotnet format, dotnet build (warnings as errors), ruff, rubocop
 ```
+
+`make dist` builds the module once and packs every package into `dist/`. `VERSION` holds the one version of all packages; `make version` writes it into every manifest. Releases are cut from a `v<VERSION>` tag; see `RELEASING.md` and `CHANGELOG.md`.
 
 ## License
 
