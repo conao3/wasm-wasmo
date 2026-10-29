@@ -28,6 +28,11 @@ kms/create-key
 kms/encrypt-decrypt
 kms/generate-random
 kms/list-aliases
+logs/create-log-group
+logs/create-log-group-error
+logs/get-log-events-identifier
+logs/log-events
+logs/log-tags
 s3/copy-object-metadata-replace
 s3/copy-object-no-such-key
 s3/copy-object-self-error

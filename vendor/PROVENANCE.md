@@ -77,6 +77,7 @@ aws-models/
   dynamodbstreams.json # botocore/data/dynamodbstreams/2012-08-10/service-2.json (protocol json, signingName dynamodb)
   kinesis.json        # botocore/data/kinesis/2013-12-02/service-2.json        (protocol json)
   firehose.json       # botocore/data/firehose/2015-08-04/service-2.json       (protocol json)
+  logs.json           # botocore/data/logs/2014-03-28/service-2.json           (protocol json)
 ```
 
 `crates/wasmo-core/build.rs` strips documentation fields at build time; the

@@ -5,6 +5,7 @@ pub mod events;
 pub mod firehose;
 pub mod kinesis;
 pub mod kms;
+pub mod logs;
 mod pattern;
 pub mod s3;
 pub mod secretsmanager;
@@ -28,6 +29,7 @@ pub fn all() -> Vec<Box<dyn Service>> {
         Box::new(kms::Kms::default()),
         Box::new(kinesis::Kinesis::default()),
         Box::new(firehose::Firehose::default()),
+        Box::new(logs::Logs::default()),
     ]
 }
 

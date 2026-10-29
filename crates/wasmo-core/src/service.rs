@@ -191,6 +191,12 @@ pub trait Service {
     /// Lower-case SigV4 signing name (`sqs`, `dynamodb`, ...).
     fn signing_name(&self) -> &'static str;
     fn model(&self) -> &'static ServiceModel;
+
+    /// Service segment of the ARNs this service owns, when it differs from the
+    /// signing name (`cloudwatch` for `monitoring`).
+    fn arn_service(&self) -> &'static str {
+        self.signing_name()
+    }
     fn call(&mut self, ctx: &mut Ctx<'_>, operation: &str, input: Value) -> OpResult;
 
     /// Whether requests may address a bucket through the host name.

@@ -164,7 +164,7 @@ impl<E: Env> Emulator<E> {
             let delivered = self
                 .services
                 .iter_mut()
-                .find(|s| s.signing_name() == arn.service)
+                .find(|s| s.arn_service() == arn.service)
                 .is_some_and(|s| s.deliver(&mut ctx, arn.resource, &d));
             queue.extend(ctx.outbox);
             if !delivered && let Some(dlq) = d.dead_letter.clone() {
