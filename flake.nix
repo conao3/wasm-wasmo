@@ -2,7 +2,7 @@
   description = "wasmo - stateful in-process AWS mock for every language, powered by a single WebAssembly module";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
     flake-parts.url = "github:hercules-ci/flake-parts";
     rust-overlay = {
       url = "github:oxalica/rust-overlay";
