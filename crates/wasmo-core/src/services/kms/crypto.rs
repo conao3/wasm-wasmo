@@ -8,7 +8,7 @@ use p256::ecdsa::{Signature, SigningKey, VerifyingKey};
 use p256::elliptic_curve::Generate;
 use p256::pkcs8::{DecodePublicKey, EncodePrivateKey, EncodePublicKey};
 use rand_core::{TryCryptoRng, TryRng};
-use rsa::{Oaep, Pkcs1v15Sign, Pss, RsaPrivateKey};
+use rsa::{Oaep, Pkcs1v15Sign, PrivateKey, Pss};
 use sha1::Sha1;
 use sha2::{Digest, Sha224, Sha256, Sha384, Sha512};
 
@@ -44,7 +44,7 @@ pub enum Material {
     Symmetric(Vec<[u8; 32]>),
     Hmac(Vec<u8>),
     Ecc(Box<p256::SecretKey>),
-    Rsa(Box<RsaPrivateKey>),
+    Rsa(Box<PrivateKey>),
     Pending,
 }
 
@@ -75,7 +75,7 @@ pub fn generate(spec: &str, rng: &mut EnvRng<'_>) -> Option<Material> {
 #[inline(never)]
 fn rsa_key(rng: &mut EnvRng<'_>, bits: usize) -> Material {
     Material::Rsa(Box::new(
-        RsaPrivateKey::new(rng, bits).expect("RSA key generation succeeds"),
+        PrivateKey::new(rng, bits).expect("RSA key generation succeeds"),
     ))
 }
 
@@ -209,7 +209,7 @@ pub fn mac_algorithm(spec: &str) -> Option<&'static str> {
 
 #[inline(never)]
 fn rsa_sign(
-    key: &RsaPrivateKey,
+    key: &PrivateKey,
     algorithm: &str,
     digest: &[u8],
     rng: &mut EnvRng<'_>,
@@ -227,7 +227,7 @@ fn rsa_sign(
 }
 
 #[inline(never)]
-fn rsa_verify(key: &RsaPrivateKey, algorithm: &str, digest: &[u8], signature: &[u8]) -> bool {
+fn rsa_verify(key: &PrivateKey, algorithm: &str, digest: &[u8], signature: &[u8]) -> bool {
     let public = key.as_public_key();
     let pss = algorithm.starts_with("RSASSA_PSS_");
     match (pss, hash_len(algorithm)) {

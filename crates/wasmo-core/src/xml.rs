@@ -111,7 +111,7 @@ pub fn parse(input: &[u8]) -> Result<Element, String> {
                 stack.last_mut().ok_or("unbalanced xml")?.children.push(el);
             }
             Event::Text(t) => {
-                let text = t.decode().map_err(|e| e.to_string())?;
+                let text = t.xml10_content();
                 let text = quick_xml::escape::unescape(&text).map_err(|e| e.to_string())?;
                 stack
                     .last_mut()
@@ -120,7 +120,7 @@ pub fn parse(input: &[u8]) -> Result<Element, String> {
                     .push_str(&text);
             }
             Event::CData(t) => {
-                let text = String::from_utf8_lossy(&t).into_owned();
+                let text = t.xml10_content();
                 stack
                     .last_mut()
                     .expect("document root")
@@ -128,7 +128,7 @@ pub fn parse(input: &[u8]) -> Result<Element, String> {
                     .push_str(&text);
             }
             Event::GeneralRef(r) => {
-                let name = r.decode().map_err(|e| e.to_string())?;
+                let name = r.xml10_content();
                 let resolved =
                     resolve_entity(&name).ok_or_else(|| format!("unknown entity &{name};"))?;
                 stack
@@ -162,12 +162,14 @@ fn resolve_entity(name: &str) -> Option<String> {
 }
 
 fn start_element(e: &quick_xml::events::BytesStart<'_>) -> Result<Element, String> {
-    let mut el = Element::new(String::from_utf8_lossy(e.name().as_ref()).into_owned());
+    let mut el = Element::new(e.name().as_ref().to_string());
     for a in e.attributes() {
         let a = a.map_err(|e| e.to_string())?;
-        let value = a.unescape_value().map_err(|e| e.to_string())?.into_owned();
-        el.attrs
-            .push((String::from_utf8_lossy(a.key.as_ref()).into_owned(), value));
+        let value = a
+            .normalized_value(quick_xml::XmlVersion::default())
+            .map_err(|e| e.to_string())?
+            .into_owned();
+        el.attrs.push((a.key.as_ref().to_string(), value));
     }
     Ok(el)
 }
