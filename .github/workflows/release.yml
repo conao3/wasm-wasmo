@@ -36,7 +36,7 @@ jobs:
           fi
           echo "version=$(scripts/version.sh get)" >> "$GITHUB_OUTPUT"
           echo "publish=$PUBLISH" >> "$GITHUB_OUTPUT"
-      - uses: cachix/install-nix-action@v31.11.3
+      - uses: cachix/install-nix-action@v31.11.5
       - run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -154,7 +154,7 @@ jobs:
         with:
           name: dist
           path: dist
-      - uses: cachix/install-nix-action@v31.11.3
+      - uses: cachix/install-nix-action@v31.11.5
       - run: |
           cat > "$RUNNER_TEMP/settings.xml" << 'EOF'
           <settings>
