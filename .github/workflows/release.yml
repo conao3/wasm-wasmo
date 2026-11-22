@@ -36,7 +36,7 @@ jobs:
           fi
           echo "version=$(scripts/version.sh get)" >> "$GITHUB_OUTPUT"
           echo "publish=$PUBLISH" >> "$GITHUB_OUTPUT"
-      - uses: cachix/install-nix-action@v31.11.5
+      - uses: cachix/install-nix-action@v32.0.0
       - run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -107,7 +107,7 @@ jobs:
         with:
           name: dist
           path: dist
-      - uses: ruby/setup-ruby@v1.338.0
+      - uses: ruby/setup-ruby@v1.343.0
         with:
           ruby-version: "3.3"
       - uses: rubygems/configure-rubygems-credentials@v2.1.0
@@ -154,7 +154,7 @@ jobs:
         with:
           name: dist
           path: dist
-      - uses: cachix/install-nix-action@v31.11.5
+      - uses: cachix/install-nix-action@v32.0.0
       - run: |
           cat > "$RUNNER_TEMP/settings.xml" << 'EOF'
           <settings>
@@ -196,7 +196,7 @@ jobs:
         with:
           name: dist
           path: dist
-      - uses: actions/setup-go@v7.0.0
+      - uses: actions/setup-go@v7.1.0
         with:
           go-version-file: go/go.mod
           cache: false
