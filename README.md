@@ -12,11 +12,11 @@
 </p>
 
 <p align="center">
-  <a href="#install">Install</a> ·
-  <a href="#how-it-works">How it works</a> ·
-  <a href="#lambda">Lambda</a> ·
-  <a href="#step-functions">Step Functions</a> ·
-  <a href="#api-gateway">API Gateway</a> ·
+  <a href="#install">Install</a> |
+  <a href="#how-it-works">How it works</a> |
+  <a href="#lambda">Lambda</a> |
+  <a href="#step-functions">Step Functions</a> |
+  <a href="#api-gateway">API Gateway</a> |
   <a href="#development">Development</a>
 </p>
 
