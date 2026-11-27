@@ -1,6 +1,6 @@
 # Releasing
 
-Every package ships the same version from `VERSION` and the same `wasmo.wasm`. A `v<VERSION>` tag starts `.github/workflows/release.yml`, which builds the module once, tests and packs every adapter, publishes each registry from its own job, tags the Go module, and creates the GitHub Release.
+Every package ships the same version from `VERSION` and the same `wasmo.wasm`. One manual run of `.github/workflows/release.yml` on `main` bumps the version, builds the module once, packs every adapter, pushes the version commit to `main` together with the annotated tag `v<VERSION>`, publishes each registry from its own job, tags the Go module, and creates the GitHub Release. The workflow pushes the tags itself.
 
 | Package | Registry | Authentication | GitHub environment |
 | --- | --- | --- | --- |
@@ -13,19 +13,19 @@ Every package ships the same version from `VERSION` and the same `wasmo.wasm`. A
 
 ## How the Go module gets `wasmo.wasm`
 
-`go/wasmo.wasm` is a build output and stays out of `main`. For each release, `scripts/go-release.sh` makes one commit on top of the tagged commit that adds the built `go/wasmo.wasm` (and drops its line from `.gitignore`), and tags that commit `go/v<VERSION>`. The commit is reachable only from the tag. `go get github.com/conao3/wasm-wasmo/go@v<VERSION>` resolves the `go/v<VERSION>` tag, so the module zip on the proxy contains the same `wasmo.wasm` as every other package, and `go:embed` needs no generate step on the consumer side.
+`go/wasmo.wasm` is a build output and stays out of `main`. For each release, `scripts/go-release.sh` makes one commit on top of the `v<VERSION>` commit that adds the built `go/wasmo.wasm` (and drops its line from `.gitignore`), and tags that commit `go/v<VERSION>`. The commit is reachable only from the tag. `go get github.com/conao3/wasm-wasmo/go@v<VERSION>` resolves the `go/v<VERSION>` tag, so the module zip on the proxy contains the same `wasmo.wasm` as every other package, and `go:embed` needs no generate step on the consumer side.
 
 Before pushing, the script serves the module zip from a local `GOPROXY=file://` directory and builds and runs a consumer program against it. `make dist-go` runs the same check without tagging. Only tagged versions are installable; a pseudo-version of `main` has no `wasmo.wasm`. Go tags are permanent once the proxy has fetched them, so a broken Go release is fixed with a new version, never by moving a tag.
 
 ## One-time setup
 
-Do these once, before the first tag. Right before the first release, check that the names are still free: each of `curl -s -o /dev/null -w "%{http_code}"` on `https://registry.npmjs.org/@conao3%2fwasmo`, `https://pypi.org/pypi/wasmo/json`, `https://rubygems.org/api/v1/gems/wasmo.json`, and `https://api.nuget.org/v3-flatcontainer/wasmo/index.json` returns `404`.
+Do these once, before the first release. Right before the first release, check that the names are still free: each of `curl -s -o /dev/null -w "%{http_code}"` on `https://registry.npmjs.org/@conao3%2fwasmo`, `https://pypi.org/pypi/wasmo/json`, `https://rubygems.org/api/v1/gems/wasmo.json`, and `https://api.nuget.org/v3-flatcontainer/wasmo/index.json` returns `404`.
 
 ### GitHub
 
-1. Settings > Environments: create `npm`, `pypi`, `rubygems`, `nuget`, and `maven-central`. Add yourself as a required reviewer on each so every publish waits for an approval, and limit deployment to tags matching `v*`.
-2. Settings > Rules > Rulesets: add a tag ruleset for `v*` and `go/v*` that blocks deletion and non-fast-forward updates. Allow GitHub Actions to create tags (the `go` job pushes `go/v*`).
-3. Settings > Actions > General: keep "Read repository contents" as the default token permission. The `go` and `github-release` jobs request `contents: write` themselves.
+1. Settings > Environments: create `npm`, `pypi`, `rubygems`, `nuget`, and `maven-central`. Add yourself as a required reviewer on each so every publish waits for an approval, and limit deployment to the branch `main` (the release workflow runs on `main`).
+2. Settings > Rules > Rulesets: add a tag ruleset for `v*` and `go/v*` that blocks deletion and non-fast-forward updates. Allow GitHub Actions to create tags (the `tag` job pushes `v*` and the `go` job pushes `go/v*`).
+3. Settings > Actions > General: keep "Read repository contents" as the default token permission. The `tag`, `go`, and `github-release` jobs request `contents: write` themselves.
 
 ### npm (`@conao3/wasmo`)
 
@@ -72,21 +72,11 @@ Nothing to register. pkg.go.dev lists the module after the proxy fetches it; the
 
 ## Release checklist
 
-1. Start from an up-to-date `main` with a green `ci` run.
-2. Write the new version into `VERSION` and run `nix develop --command make version`. It rewrites `Cargo.toml`, `Cargo.lock`, `js/package.json`, `js/package-lock.json`, `jvm/pom.xml`, `dotnet/src/Wasmo/Wasmo.csproj`, `python/pyproject.toml`, `ruby/wasmo.gemspec`, and `ruby/Gemfile.lock`. `make lint` fails while any of them disagrees with `VERSION`.
-3. In `CHANGELOG.md`, turn the notes into `## [<VERSION>] - <YYYY-MM-DD>` and add the link reference at the bottom. The GitHub Release body is this section.
-4. Commit (`release: v<VERSION>`), open a pull request, and merge it after `ci` passes.
-5. Dry run: Actions > release > Run workflow on `main` with "dry-run" checked. The `build` job runs `make test` and `make dist` (npm tarball, jar with sources and javadoc jars, nupkg and snupkg, sdist and wheel, gem, and the Go module zip checked by a consumer build) and uploads `dist/` as the `dist` artifact. Every publish job is skipped. Download the artifact and look inside the packages if anything packaging-related changed.
-6. Tag the merge commit and push the tag:
-
-   ```sh
-   git switch main && git pull
-   git tag -a "v$(cat VERSION)" -m "v$(cat VERSION)"
-   git push origin "v$(cat VERSION)"
-   ```
-
-7. Approve the five environments when GitHub asks. Each publish job first checks that the tag equals `v` + `VERSION` and that every manifest agrees, and stops otherwise. The `go` job runs only after all five registries succeed, and the GitHub Release (with `wasmo.wasm`, every package, and `SHA256SUMS`) is created last.
-8. Check every registry:
+1. Start from an up-to-date `main` with a green `ci` run. `VERSION` holds the latest published version.
+2. Optional dry run: `gh workflow run release.yml --ref main -f version_bump=patch -f dry_run=true`. The `check` job bumps the version in a local commit, runs `make dist` (npm tarball, jar with sources and javadoc jars, nupkg and snupkg, sdist and wheel, gem, and the Go module zip checked by a consumer build), and uploads `dist/` as the `dist` artifact. Nothing is pushed and every publish job is skipped. Download the artifact and look inside the packages if anything packaging-related changed.
+3. Release: `gh workflow run release.yml --ref main -f version_bump=patch` (or `minor`, `major`). The `check` job computes the next version from `VERSION`, stops if `v<VERSION>` or `go/v<VERSION>` already exists, writes `VERSION`, runs `make version` (it rewrites `Cargo.toml`, `Cargo.lock`, `js/package.json`, `js/package-lock.json`, `jvm/pom.xml`, `dotnet/src/Wasmo/Wasmo.csproj`, `python/pyproject.toml`, `ruby/wasmo.gemspec`, and `ruby/Gemfile.lock`), commits `release: v<VERSION>`, and runs `make dist`. The `tag` job checks that the commit is a child of the dispatched commit and touches only those files, then pushes it to `main` and the annotated tag `v<VERSION>` in one atomic push.
+4. Approve the five environments when GitHub asks. Each publish job checks out the tag, checks that it equals `v` + `VERSION` and that every manifest agrees, and publishes the package from the `dist` artifact (the `maven` job rebuilds the jars and compares them with the artifact before it deploys). The `go` job runs only after all five registries succeed, and the GitHub Release (notes generated by GitHub, with `wasmo.wasm`, every package, and `SHA256SUMS`) is created last.
+5. Check every registry:
 
    ```sh
    npm view @conao3/wasmo@<VERSION> dist.attestations
@@ -101,4 +91,4 @@ Nothing to register. pkg.go.dev lists the module after the proxy fetches it; the
 
 ## When a publish job fails
 
-Registries refuse to overwrite a version, so rerun only the failed job ("Re-run failed jobs"); the jobs that succeeded stay published. The `go` and `github-release` jobs wait for all five registries, so they run once the rerun succeeds. If a package is broken after it was published, release the next patch version; npm, PyPI, RubyGems, and NuGet allow deprecating or yanking the broken one, and Maven Central does not allow removal.
+Registries refuse to overwrite a version, so rerun only the failed job in the same run ("Re-run failed jobs", `gh run rerun <run-id> --failed`); the jobs that succeeded stay published. The `go` and `github-release` jobs wait for all five registries, so they run once the rerun succeeds. A rerun uses the workflow as it was in that run, so a fix to the workflow itself lands on `main` and ships with the next patch version. If a package is broken after it was published, release the next patch version; npm, PyPI, RubyGems, and NuGet allow deprecating or yanking the broken one, and Maven Central does not allow removal.

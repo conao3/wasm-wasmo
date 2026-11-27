@@ -25,7 +25,7 @@ workflows:
         - 'actions/upload-artifact@v7.0.2'
         - 'cachix/install-nix-action@v32.0.0'
         - 'nuget/login@v1.2.0'
-        - 'pypa/gh-action-pypi-publish@release/v1'
+        - 'pypa/gh-action-pypi-publish@v1.14.3'
         - 'ruby/setup-ruby@v1.343.0'
         - 'rubygems/configure-rubygems-credentials@v2.1.0'
 dependencies:
@@ -94,8 +94,8 @@ dependencies:
         commit: 'sha1-0c5077e51419868618aeaa5fe8019c62421857d6'
         owner_id: 108928776
         repo_id: 512644635
-    'pypa/gh-action-pypi-publish@release/v1':
-        ref: 'release/v1'
+    'pypa/gh-action-pypi-publish@v1.14.3':
+        ref: 'v1.14.3'
         commit: 'sha1-7245906fb61fa33a13554f9d5fb856fe61758086'
         owner_id: 647025
         repo_id: 178055147

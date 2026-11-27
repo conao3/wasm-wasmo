@@ -448,7 +448,7 @@ make test   # cargo test + build wasm + go test + node --test + bun test + mvn v
 make lint   # VERSION check, actionlint, shellcheck, rustfmt, clippy, gofmt, go vet, tsc, prettier, google-java-format, javac -Xlint, dotnet format, dotnet build (warnings as errors), ruff, rubocop
 ```
 
-`make dist` builds the module once and packs every package into `dist/`. `VERSION` holds the version all packages share; `make version` writes it into every manifest. Releases are cut from a `v<VERSION>` tag; see `RELEASING.md` and `CHANGELOG.md`.
+`make dist` builds the module once and packs every package into `dist/`. `VERSION` holds the version all packages share; `make version` writes it into every manifest. Releases run from one manual dispatch of the release workflow (`gh workflow run release.yml --ref main -f version_bump=patch`), which bumps the version, pushes the `v<VERSION>` tag, and publishes every package; see `RELEASING.md` and `CHANGELOG.md`.
 
 ## License
 
