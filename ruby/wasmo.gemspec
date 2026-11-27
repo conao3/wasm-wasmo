@@ -17,7 +17,7 @@ Gem::Specification.new do |spec|
     "homepage_uri" => "https://github.com/conao3/wasm-wasmo",
     "source_code_uri" => "https://github.com/conao3/wasm-wasmo/tree/main/ruby",
     "documentation_uri" => "https://github.com/conao3/wasm-wasmo/tree/main/ruby#readme",
-    "changelog_uri" => "https://github.com/conao3/wasm-wasmo/blob/main/CHANGELOG.md",
+    "changelog_uri" => "https://github.com/conao3/wasm-wasmo/releases",
     "bug_tracker_uri" => "https://github.com/conao3/wasm-wasmo/issues",
     "rubygems_mfa_required" => "true"
   }

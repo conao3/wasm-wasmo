@@ -36,7 +36,7 @@ Homepage = "https://github.com/conao3/wasm-wasmo"
 Documentation = "https://github.com/conao3/wasm-wasmo/tree/main/python#readme"
 Source = "https://github.com/conao3/wasm-wasmo/tree/main/python"
 Issues = "https://github.com/conao3/wasm-wasmo/issues"
-Changelog = "https://github.com/conao3/wasm-wasmo/blob/main/CHANGELOG.md"
+"Release notes" = "https://github.com/conao3/wasm-wasmo/releases"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/wasmo"]
